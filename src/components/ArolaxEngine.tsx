@@ -23,6 +23,11 @@ export default function ArolaxEngine() {
       window.scrollTo(0, 0);
     }
 
+    // Unlock all Elementor lazy background containers (e.g. Section 2 about-2.webp)
+    document.querySelectorAll(".e-con.e-parent").forEach((el) => {
+      el.classList.add("e-lazyloaded");
+    });
+
     // ----------------------------------------------------
     // 1. Lenis Smooth Scroll Synced with GSAP ScrollTrigger
     // ----------------------------------------------------
@@ -116,10 +121,9 @@ export default function ArolaxEngine() {
     window.addEventListener("keydown", handleKeyDown);
 
     // ----------------------------------------------------
-    // 4. Magnetic Buttons (Explore Us, Circular CTAs)
+    // 4. Magnetic Buttons & Hover Ripple Fill (Explore Us, Circular CTAs)
     // ----------------------------------------------------
-    const magneticBtns = document.querySelectorAll<HTMLElement>(".btn-wrapper, .wcf-btn-circle");
-    magneticBtns.forEach((btnWrapper) => {
+    document.querySelectorAll<HTMLElement>(".btn-wrapper").forEach((btnWrapper) => {
       const btnItem = btnWrapper.querySelector<HTMLElement>(".btn-item") || btnWrapper;
 
       const onMouseMove = (e: MouseEvent) => {
@@ -148,6 +152,23 @@ export default function ArolaxEngine() {
 
       btnWrapper.addEventListener("mousemove", onMouseMove);
       btnWrapper.addEventListener("mouseleave", onMouseLeave);
+    });
+
+    // Cursor-origin circular fill for .btn-hover-bgchange buttons
+    document.querySelectorAll<HTMLElement>(".btn-hover-bgchange").forEach((btn) => {
+      let ripple = btn.querySelector<HTMLElement>(":scope > span.btn-ripple");
+      if (!ripple) {
+        ripple = document.createElement("span");
+        ripple.className = "btn-ripple";
+        btn.appendChild(ripple);
+      }
+      const updateRipplePos = (e: MouseEvent) => {
+        const rect = btn.getBoundingClientRect();
+        ripple!.style.left = `${e.clientX - rect.left}px`;
+        ripple!.style.top = `${e.clientY - rect.top}px`;
+      };
+      btn.addEventListener("mouseenter", updateRipplePos);
+      btn.addEventListener("mouseleave", updateRipplePos);
     });
 
     // ====================================================
@@ -646,96 +667,182 @@ export default function ArolaxEngine() {
         );
       });
 
-    // Word stagger animations for non-hero elements
+    // Helper: split text into word spans while preserving nested highlight spans & classes
+    const splitWordsPreservingMarkup = (
+      root: HTMLElement,
+      options?: { perspective?: string; transformOrigin?: string }
+    ): HTMLElement[] => {
+      const wordSpans: HTMLElement[] = [];
+
+      const processNode = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent || "";
+          if (!text.trim()) return;
+          const frag = document.createDocumentFragment();
+          const tokens = text.split(/(\s+)/);
+          tokens.forEach((token) => {
+            if (!token) return;
+            if (/^\s+$/.test(token)) {
+              frag.appendChild(document.createTextNode(" "));
+              return;
+            }
+            const wrap = document.createElement("span");
+            wrap.style.display = "inline-block";
+            wrap.style.verticalAlign = "baseline";
+            if (options?.perspective) {
+              wrap.style.perspective = options.perspective;
+            }
+
+            const inner = document.createElement("span");
+            inner.textContent = token;
+            inner.style.display = "inline-block";
+            inner.style.opacity = "0";
+            if (options?.transformOrigin) {
+              inner.style.transformOrigin = options.transformOrigin;
+            }
+
+            wrap.appendChild(inner);
+            frag.appendChild(wrap);
+            wordSpans.push(inner);
+          });
+          node.parentNode?.replaceChild(frag, node);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const elNode = node as HTMLElement;
+          if (elNode.tagName === "BR") return;
+          Array.from(elNode.childNodes).forEach(processNode);
+        }
+      };
+
+      Array.from(root.childNodes).forEach(processNode);
+      return wordSpans;
+    };
+
+    // Word stagger animations for non-hero elements (preserves .highlight / .highlight-2)
     document
       .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"word"\']')
       .forEach((el) => {
         if (el.closest(".elementor-element-d3528ce")) return;
-        const titleEl = el.querySelector<HTMLElement>(".wcf--title, .elementor-widget-container > *") || el;
+        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, p, .elementor-widget-container > *") || el;
         const text = titleEl.textContent?.trim();
         if (!text || titleEl.dataset.splitDone) return;
         titleEl.dataset.splitDone = "1";
 
-        titleEl.innerHTML = "";
-        const words = text.split(" ");
-        const wordSpans: HTMLElement[] = [];
+        let settings: any = {};
+        try {
+          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
+        } catch (e) {}
 
-        words.forEach((word: string) => {
-          const wrap = document.createElement("span");
-          wrap.style.display = "inline-block";
-          wrap.style.overflow = "hidden";
-          wrap.style.verticalAlign = "top";
-          wrap.style.marginRight = "0.28em";
+        const duration = Number(settings.text_duration ?? 1.2);
+        const delay = Number(settings.text_delay ?? 0);
+        const stagger = Number(settings.text_stagger ?? 0.03);
+        const tx = settings.text_translate_x !== undefined ? Number(settings.text_translate_x) : 0;
+        const ty = settings.text_translate_y !== undefined ? Number(settings.text_translate_y) : 35;
 
-          const wordSpan = document.createElement("span");
-          wordSpan.textContent = word;
-          wordSpan.style.display = "inline-block";
-          wordSpan.style.opacity = "0";
-
-          wrap.appendChild(wordSpan);
-          titleEl.appendChild(wrap);
-          wordSpans.push(wordSpan);
-        });
+        const wordSpans = splitWordsPreservingMarkup(titleEl);
 
         gsap.fromTo(
           wordSpans,
-          { opacity: 0, y: 35 },
+          { opacity: 0, x: tx, y: ty },
           {
             opacity: 1,
+            x: 0,
             y: 0,
-            duration: 1.2,
-            stagger: 0.03,
-            ease: "power3.out",
+            duration,
+            delay,
+            stagger,
+            ease: "power2.out",
             scrollTrigger: {
               trigger: el,
-              start: "top 85%",
+              start: "top 88%",
               once: true,
             },
           }
         );
       });
 
-    // 3D Perspective rotation for non-hero elements
+    // 3D Perspective rotation for non-hero elements (supports both rotationX and rotationY)
     document
       .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"text_move"\']')
       .forEach((el) => {
         if (el.closest(".elementor-element-d3528ce")) return;
-        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, .elementor-heading-title") || el;
+        const titleEl =
+          el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, .elementor-heading-title, p, .elementor-widget-container > *") || el;
         const text = titleEl.textContent?.trim();
         if (!text || titleEl.dataset.splitDone) return;
         titleEl.dataset.splitDone = "1";
 
-        titleEl.innerHTML = "";
-        const words = text.split(" ");
-        const wordSpans: HTMLElement[] = [];
+        let settings: any = {};
+        try {
+          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
+        } catch (e) {}
 
-        words.forEach((word: string) => {
-          const wrap = document.createElement("span");
-          wrap.style.display = "inline-block";
-          wrap.style.perspective = "600px";
-          wrap.style.marginRight = "0.22em";
+        const duration = Number(settings.text_duration ?? 1);
+        const delay = Number(settings.text_delay ?? 0);
+        const stagger = Number(settings.text_stagger ?? 0.02);
+        const dir = settings.text_rotation_di === "x" ? "x" : "y";
+        const rot = Number(settings.text_rotation ?? -40);
+        const origin = settings.text_transform_origin || "top center -50";
 
-          const wordSpan = document.createElement("span");
-          wordSpan.textContent = word;
-          wordSpan.style.display = "inline-block";
-          wordSpan.style.opacity = "0";
-          wordSpan.style.transformOrigin = "top center -40";
-
-          wrap.appendChild(wordSpan);
-          titleEl.appendChild(wrap);
-          wordSpans.push(wordSpan);
+        const wordSpans = splitWordsPreservingMarkup(titleEl, {
+          perspective: "600px",
+          transformOrigin: origin,
         });
 
+        const fromVars: gsap.TweenVars = { opacity: 0, y: 15 };
+        const toVars: gsap.TweenVars = {
+          opacity: 1,
+          y: 0,
+          duration,
+          delay,
+          stagger,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: el,
+            start: "top 88%",
+            once: true,
+          },
+        };
+
+        if (dir === "x") {
+          fromVars.rotationX = rot;
+          toVars.rotationX = 0;
+        } else {
+          fromVars.rotationY = rot;
+          toVars.rotationY = 0;
+        }
+
+        gsap.fromTo(wordSpans, fromVars, toVars);
+      });
+
+    // Image clip-path reveal animations (e.g. Section 2 img-r-1.webp)
+    document
+      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-image-animation":"reveal"\']')
+      .forEach((el) => {
+        if (el.dataset.revealInit) return;
+        el.dataset.revealInit = "1";
+
+        let settings: any = {};
+        try {
+          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
+        } catch (e) {}
+
+        const startFrom = settings.aae_a_start_from || "right";
+        const ease = settings["image-ease"] || "power2.out";
+        const wrap = el.querySelector<HTMLElement>(".wcf--image") || el.querySelector<HTMLElement>(".elementor-widget-container") || el;
+        const img = el.querySelector<HTMLElement>("img");
+
+        let fromClip = "inset(0% 0% 0% 100%)";
+        if (startFrom === "left") fromClip = "inset(0% 100% 0% 0%)";
+        else if (startFrom === "bottom") fromClip = "inset(100% 0% 0% 0%)";
+        else if (startFrom === "top") fromClip = "inset(0% 0% 100% 0%)";
+
         gsap.fromTo(
-          wordSpans,
-          { opacity: 0, rotationY: -40, y: 15 },
+          wrap,
+          { clipPath: fromClip },
           {
-            opacity: 1,
-            rotationY: 0,
-            y: 0,
-            duration: 1,
-            stagger: 0.02,
-            ease: "power2.out",
+            clipPath: "inset(0% 0% 0% 0%)",
+            duration: 1.35,
+            ease,
             scrollTrigger: {
               trigger: el,
               start: "top 85%",
@@ -743,7 +850,46 @@ export default function ArolaxEngine() {
             },
           }
         );
+
+        if (img) {
+          gsap.fromTo(
+            img,
+            { scale: 1.25 },
+            {
+              scale: 1,
+              duration: 1.35,
+              ease,
+              scrollTrigger: {
+                trigger: el,
+                start: "top 85%",
+                once: true,
+              },
+            }
+          );
+        }
       });
+
+    // Gentle non-hero parallax for decorative elements with data-speed (e.g. Section 2 react-shape)
+    document.querySelectorAll<HTMLElement>(".elementor-element-5ed9c2f [data-speed]").forEach((el) => {
+      const speed = parseFloat(el.getAttribute("data-speed") || "1");
+      if (speed === 1) return;
+      const target = el.querySelector<HTMLElement>(".elementor-widget-container") || el;
+      const offset = (1 - speed) * 180;
+      gsap.fromTo(
+        target,
+        { y: -offset },
+        {
+          y: offset,
+          ease: "none",
+          scrollTrigger: {
+            trigger: el,
+            start: "top bottom",
+            end: "bottom top",
+            scrub: true,
+          },
+        }
+      );
+    });
 
     // ----------------------------------------------------
     // 9. Rotating Badges & Wiggle Stickers Physics
