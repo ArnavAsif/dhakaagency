@@ -28,7 +28,9 @@ export default function ArolaxEngine() {
       touchMultiplier: 2,
     });
 
-    lenis.on("scroll", ScrollTrigger.update);
+    lenis.on("scroll", () => {
+      ScrollTrigger.update();
+    });
     const tickerCb = (time: number) => lenis.raf(time * 1000);
     gsap.ticker.add(tickerCb);
     gsap.ticker.lagSmoothing(0);
@@ -140,89 +142,413 @@ export default function ArolaxEngine() {
       btnWrapper.addEventListener("mouseleave", onMouseLeave);
     });
 
-    // ----------------------------------------------------
-    // 5. Parallax Speed Physics for Elements with [data-speed]
-    // ----------------------------------------------------
-    document.querySelectorAll<HTMLElement>("[data-speed]").forEach((el) => {
-      const speed = parseFloat(el.getAttribute("data-speed") || "1");
-      if (speed !== 1 && !isNaN(speed)) {
-        const yOffset = (1 - speed) * 160;
-        gsap.to(el, {
-          y: yOffset,
-          ease: "none",
-          scrollTrigger: {
-            trigger: el,
-            start: "top bottom",
-            end: "bottom top",
-            scrub: true,
-          },
-        });
-      }
+    // ====================================================
+    // 5. HERO ENTRY ANIMATION SEQUENCE (Runs on Page Load)
+    // ====================================================
+    const heroTl = gsap.timeline({
+      defaults: { ease: "power2.out" },
+      delay: 0.1,
     });
 
-    // ----------------------------------------------------
-    // 6. Elementor "fade" & "slide" Container Animations
-    // ----------------------------------------------------
-    document.querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-animation":"fade"\'').forEach((el) => {
-      if ((el as HTMLElement).dataset.fadeInit) return;
-      (el as HTMLElement).dataset.fadeInit = "1";
+    // (A) "WE ARE SKILLED IN" - Staggered Character Slide
+    const heroTitle = document.querySelector<HTMLElement>(".elementor-element-ac8608d .wcf--title");
+    if (heroTitle && !heroTitle.dataset.splitDone) {
+      heroTitle.dataset.splitDone = "1";
+      const text = heroTitle.textContent?.trim() || "";
+      heroTitle.innerHTML = "";
+      const words = text.split(" ");
+      const charSpans: HTMLElement[] = [];
 
-      let settings: any = {};
-      try {
-        settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-      } catch (e) {}
+      words.forEach((word: string, wIdx: number) => {
+        const wordWrap = document.createElement("span");
+        wordWrap.style.display = "inline-block";
+        wordWrap.style.whiteSpace = "nowrap";
 
-      const duration = settings["data-duration"] || 1;
-      const delay = settings.delay || 0;
-      const offset = settings["fade-offset"] || 40;
-      const fadeFrom = settings["fade-from"] || "bottom";
-      const ease = settings.ease === "bounce" ? "bounce.out" : settings.ease || "power2.out";
+        Array.from(word).forEach((char: string) => {
+          const charSpan = document.createElement("span");
+          charSpan.textContent = char;
+          charSpan.style.display = "inline-block";
+          charSpan.style.position = "relative";
+          charSpan.style.opacity = "0";
+          wordWrap.appendChild(charSpan);
+          charSpans.push(charSpan);
+        });
 
-      let initX = 0;
-      let initY = 0;
-      if (fadeFrom === "bottom") initY = offset;
-      else if (fadeFrom === "top") initY = -offset;
-      else if (fadeFrom === "left") initX = -offset;
-      else if (fadeFrom === "right") initX = offset;
+        heroTitle.appendChild(wordWrap);
+        if (wIdx < words.length - 1) {
+          heroTitle.appendChild(document.createTextNode(" "));
+        }
+      });
 
+      heroTl.fromTo(
+        charSpans,
+        { opacity: 0, x: 50 },
+        { opacity: 1, x: 0, duration: 1.1, stagger: 0.035 },
+        0
+      );
+    }
+
+    // (B) Right-side Composite Artwork: Red Semicircle & Two Men
+    const heroRightImages = document.querySelectorAll<HTMLElement>(
+      ".elementor-element-81b8cf6, .elementor-element-cb48386"
+    );
+    if (heroRightImages.length) {
+      heroTl.fromTo(
+        heroRightImages,
+        { opacity: 0, y: 70 },
+        { opacity: 1, y: 0, duration: 1.6, stagger: 0.12, ease: "power2.out" },
+        0.25
+      );
+    }
+
+    // (C) "WEB DESIGN" with Top/Bottom Accent Lines
+    const webDesignEl = document.querySelector<HTMLElement>(".elementor-element-f6b85e2 .elementor-heading-title");
+    const webDesignLines = document.querySelectorAll<HTMLElement>(
+      ".elementor-element-24178fa, .elementor-element-cd9cff7"
+    );
+    if (webDesignEl && !webDesignEl.dataset.splitDone) {
+      webDesignEl.dataset.splitDone = "1";
+      const text = webDesignEl.textContent?.trim() || "";
+      webDesignEl.innerHTML = "";
+      const words = text.split(/\s+/);
+      const spans: HTMLElement[] = [];
+
+      words.forEach((word) => {
+        const wrap = document.createElement("span");
+        wrap.style.display = "inline-block";
+        wrap.style.perspective = "600px";
+        wrap.style.marginRight = "0.2em";
+
+        const span = document.createElement("span");
+        span.textContent = word;
+        span.style.display = "inline-block";
+        span.style.opacity = "0";
+        span.style.transformOrigin = "top center -40";
+        wrap.appendChild(span);
+        webDesignEl.appendChild(wrap);
+        spans.push(span);
+      });
+
+      heroTl.fromTo(
+        spans,
+        { opacity: 0, rotationY: -40, y: 15 },
+        { opacity: 1, rotationY: 0, y: 0, duration: 0.9, stagger: 0.04 },
+        0.35
+      );
+      heroTl.fromTo(
+        webDesignLines,
+        { scaleX: 0, opacity: 0 },
+        { scaleX: 1, opacity: 1, duration: 0.8, transformOrigin: "left center" },
+        0.35
+      );
+    }
+
+    // (D) "AND"
+    const andEl = document.querySelector<HTMLElement>(".elementor-element-70f26dc .wcf--title");
+    if (andEl && !andEl.dataset.splitDone) {
+      andEl.dataset.splitDone = "1";
+      const text = andEl.textContent?.trim() || "";
+      andEl.innerHTML = "";
+      const wrap = document.createElement("span");
+      wrap.style.display = "inline-block";
+      wrap.style.perspective = "600px";
+
+      const span = document.createElement("span");
+      span.textContent = text;
+      span.style.display = "inline-block";
+      span.style.opacity = "0";
+      span.style.transformOrigin = "top center -40";
+      wrap.appendChild(span);
+      andEl.appendChild(wrap);
+
+      heroTl.fromTo(
+        span,
+        { opacity: 0, rotationY: -40, y: 15 },
+        { opacity: 1, rotationY: 0, y: 0, duration: 0.9 },
+        0.48
+      );
+    }
+
+    // (E) "development" Neon Green Capsule & 3D Emoji Avatar
+    const devCapsule = document.querySelector<HTMLElement>(".elementor-element-624b12c");
+    if (devCapsule) {
+      heroTl.fromTo(
+        devCapsule,
+        { opacity: 0, y: 45 },
+        { opacity: 1, y: 0, duration: 1.2, ease: "power2.out" },
+        0.55
+      );
+    }
+
+    // (F) Floating Down Arrow Icon ( ↓ )
+    const downArrow = document.querySelector<HTMLElement>(".elementor-element-1df6f7d");
+    if (downArrow) {
+      heroTl.fromTo(
+        downArrow,
+        { opacity: 0, y: 25 },
+        { opacity: 1, y: 0, duration: 0.8 },
+        0.65
+      );
+      gsap.to(downArrow, {
+        y: 6,
+        duration: 1.5,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+    }
+
+    // (G) 3D Emoji Head Avatar Floating
+    const emojiHead = document.querySelector<HTMLElement>(".elementor-element-34c3477");
+    if (emojiHead) {
+      gsap.to(emojiHead, {
+        y: -7,
+        duration: 2.2,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+    }
+
+    // (H) Paragraph Text Word-by-Word Reveal
+    const descEl = document.querySelector<HTMLElement>(
+      ".elementor-element-9a42484 .elementor-widget-container > *"
+    );
+    if (descEl && !descEl.dataset.splitDone) {
+      descEl.dataset.splitDone = "1";
+      const text = descEl.textContent?.trim() || "";
+      descEl.innerHTML = "";
+      const words = text.split(" ");
+      const wordSpans: HTMLElement[] = [];
+
+      words.forEach((word) => {
+        const wrap = document.createElement("span");
+        wrap.style.display = "inline-block";
+        wrap.style.overflow = "hidden";
+        wrap.style.verticalAlign = "top";
+        wrap.style.marginRight = "0.28em";
+
+        const span = document.createElement("span");
+        span.textContent = word;
+        span.style.display = "inline-block";
+        span.style.opacity = "0";
+
+        wrap.appendChild(span);
+        descEl.appendChild(wrap);
+        wordSpans.push(span);
+      });
+
+      heroTl.fromTo(
+        wordSpans,
+        { opacity: 0, x: -30 },
+        { opacity: 1, x: 0, duration: 1.1, stagger: 0.02 },
+        0.75
+      );
+    }
+
+    // (I) "GET STARTED NOW ->"
+    const getStartedBtn = document.querySelector<HTMLElement>(".elementor-element-819ca57");
+    if (getStartedBtn) {
+      heroTl.fromTo(
+        getStartedBtn,
+        { opacity: 0, x: -45 },
+        { opacity: 1, x: 0, duration: 1.1, ease: "power2.out" },
+        0.9
+      );
+    }
+
+    // (J) Watch Video Button & Crown Doodle
+    const watchVideoBtn = document.querySelector<HTMLElement>(
+      ".elementor-element-2e8d545, .elementor-element-22e300c"
+    );
+    const crownDoodle = document.querySelector<HTMLElement>(
+      ".elementor-element-baa7444, .elementor-repeater-item-01dbe21"
+    );
+    if (watchVideoBtn) {
+      heroTl.fromTo(
+        watchVideoBtn,
+        { opacity: 0, scale: 0.8 },
+        { opacity: 1, scale: 1, duration: 0.9, ease: "back.out(1.5)" },
+        0.6
+      );
+    }
+    if (crownDoodle) {
+      heroTl.fromTo(
+        crownDoodle,
+        { opacity: 0, y: -20 },
+        { opacity: 1, y: 0, duration: 1 },
+        0.5
+      );
+      gsap.to(crownDoodle, {
+        y: -6,
+        rotation: 3,
+        duration: 2.6,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+    }
+
+    // (K) "We have 18k+ customers word-wide" Badge
+    const customersBadge = document.querySelector<HTMLElement>(".elementor-element-dfe69e2");
+    if (customersBadge) {
+      heroTl.fromTo(
+        customersBadge,
+        { opacity: 0, y: 30 },
+        { opacity: 1, y: 0, duration: 1 },
+        0.8
+      );
+    }
+
+    // ====================================================
+    // 6. HERO SCROLL PARALLAX (Red semicircle vs Pill image)
+    // ====================================================
+    const pillImage = document.querySelector<HTMLElement>(".elementor-element-cb48386");
+    const redImage = document.querySelector<HTMLElement>(".elementor-element-81b8cf6");
+    if (pillImage && redImage) {
+      gsap.to(pillImage, {
+        y: 65,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".elementor-element-d3528ce",
+          start: "top top",
+          end: "bottom top",
+          scrub: true,
+        },
+      });
+      gsap.to(redImage, {
+        y: -65,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".elementor-element-d3528ce",
+          start: "top top",
+          end: "bottom top",
+          scrub: true,
+        },
+      });
+    }
+
+    // ====================================================
+    // 7. CONTINUOUS BRAND MARQUEE SLIDER
+    // ====================================================
+    const marqueeSection = document.querySelector<HTMLElement>(".elementor-element-078aa45");
+    const brandSliderWidget = document.querySelector<HTMLElement>(".elementor-element-f5003e6");
+
+    if (marqueeSection && brandSliderWidget) {
+      // Entry fade-up on scroll
       gsap.fromTo(
-        el,
-        { opacity: 0, x: initX, y: initY },
+        brandSliderWidget,
+        { opacity: 0, y: 40 },
         {
           opacity: 1,
-          x: 0,
           y: 0,
-          duration: duration,
-          delay: delay,
-          ease: ease,
+          duration: 0.8,
+          ease: "power2.out",
           scrollTrigger: {
-            trigger: el,
+            trigger: marqueeSection,
             start: "top 88%",
             once: true,
           },
         }
       );
-    });
+    }
 
-    // ----------------------------------------------------
-    // 7. Text Split Animations (Char, Word, 3D Move, Reveal)
-    // ----------------------------------------------------
-    const initTextAnimations = () => {
-      // Character Stagger Animation
-      document.querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"char"\'').forEach((el) => {
-        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4") || el;
-        const text = titleEl.textContent?.trim();
-        if (!text || titleEl.dataset.splitDone) return;
-        titleEl.dataset.splitDone = "1";
+    const brandSliderEl = document.querySelector<HTMLElement>(
+      ".elementor-widget-wcf--brand-slider .swiper"
+    );
+    if (brandSliderEl) {
+      const swiperWrapper = brandSliderEl.querySelector(".swiper-wrapper");
+      if (swiperWrapper) {
+        const slides = Array.from(swiperWrapper.children);
+        // Duplicate slides multiple times to guarantee completely seamless infinite loop
+        if (slides.length > 0 && slides.length < 24) {
+          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
+          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
+          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
+        }
+      }
+
+      new Swiper(brandSliderEl, {
+        modules: [Autoplay],
+        loop: true,
+        slidesPerView: 2,
+        spaceBetween: 25,
+        speed: 5000,
+        allowTouchMove: false,
+        autoplay: {
+          delay: 0,
+          disableOnInteraction: false,
+          pauseOnMouseEnter: false,
+        },
+        breakpoints: {
+          640: { slidesPerView: 3, spaceBetween: 35 },
+          880: { slidesPerView: 4, spaceBetween: 40 },
+          1024: { slidesPerView: 5, spaceBetween: 50 },
+          1366: { slidesPerView: 5, spaceBetween: 60 },
+        },
+      });
+    }
+
+    // ====================================================
+    // 8. DOWNSTREAM SECTION SCROLL ANIMATIONS
+    // ====================================================
+    // Fade animations for non-hero containers
+    document
+      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-animation":"fade"\']')
+      .forEach((el) => {
+        // Skip hero items already animated by heroTl
+        if (el.closest(".elementor-element-d3528ce") || el.closest(".elementor-element-078aa45")) {
+          return;
+        }
+        if (el.dataset.fadeInit) return;
+        el.dataset.fadeInit = "1";
 
         let settings: any = {};
         try {
           settings = JSON.parse(el.getAttribute("data-settings") || "{}");
         } catch (e) {}
 
-        const duration = settings.text_duration || 1.1;
-        const stagger = settings.text_stagger || 0.035;
-        const translateX = settings.text_translate_x || 40;
+        const duration = settings["data-duration"] || 1;
+        const delay = settings.delay || 0;
+        const offset = settings["fade-offset"] || 40;
+        const fadeFrom = settings["fade-from"] || "bottom";
+        const ease = settings.ease === "bounce" ? "bounce.out" : settings.ease || "power2.out";
+
+        let initX = 0;
+        let initY = 0;
+        if (fadeFrom === "bottom") initY = offset;
+        else if (fadeFrom === "top") initY = -offset;
+        else if (fadeFrom === "left") initX = -offset;
+        else if (fadeFrom === "right") initX = offset;
+
+        gsap.fromTo(
+          el,
+          { opacity: 0, x: initX, y: initY },
+          {
+            opacity: 1,
+            x: 0,
+            y: 0,
+            duration: duration,
+            delay: delay,
+            ease: ease,
+            scrollTrigger: {
+              trigger: el,
+              start: "top 88%",
+              once: true,
+            },
+          }
+        );
+      });
+
+    // Character stagger animations for non-hero elements
+    document
+      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"char"\']')
+      .forEach((el) => {
+        if (el.closest(".elementor-element-d3528ce")) return;
+        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4") || el;
+        const text = titleEl.textContent?.trim();
+        if (!text || titleEl.dataset.splitDone) return;
+        titleEl.dataset.splitDone = "1";
 
         titleEl.innerHTML = "";
         const words = text.split(" ");
@@ -231,14 +557,12 @@ export default function ArolaxEngine() {
         words.forEach((word: string, wIdx: number) => {
           const wordWrap = document.createElement("span");
           wordWrap.style.display = "inline-block";
-          wordWrap.style.position = "relative";
           wordWrap.style.whiteSpace = "nowrap";
 
           Array.from(word).forEach((char: string) => {
             const charSpan = document.createElement("span");
             charSpan.textContent = char;
             charSpan.style.display = "inline-block";
-            charSpan.style.position = "relative";
             charSpan.style.opacity = "0";
             wordWrap.appendChild(charSpan);
             charSpans.push(charSpan);
@@ -252,12 +576,12 @@ export default function ArolaxEngine() {
 
         gsap.fromTo(
           charSpans,
-          { opacity: 0, x: translateX },
+          { opacity: 0, x: 40 },
           {
             opacity: 1,
             x: 0,
-            duration: duration,
-            stagger: stagger,
+            duration: 1.1,
+            stagger: 0.035,
             ease: "power2.out",
             scrollTrigger: {
               trigger: el,
@@ -268,20 +592,15 @@ export default function ArolaxEngine() {
         );
       });
 
-      // Word Stagger Animation
-      document.querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"word"\'').forEach((el) => {
+    // Word stagger animations for non-hero elements
+    document
+      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"word"\']')
+      .forEach((el) => {
+        if (el.closest(".elementor-element-d3528ce")) return;
         const titleEl = el.querySelector<HTMLElement>(".wcf--title, .elementor-widget-container > *") || el;
         const text = titleEl.textContent?.trim();
         if (!text || titleEl.dataset.splitDone) return;
         titleEl.dataset.splitDone = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const duration = settings.text_duration || 1.2;
-        const stagger = settings.text_stagger || 0.03;
 
         titleEl.innerHTML = "";
         const words = text.split(" ");
@@ -310,8 +629,8 @@ export default function ArolaxEngine() {
           {
             opacity: 1,
             y: 0,
-            duration: duration,
-            stagger: stagger,
+            duration: 1.2,
+            stagger: 0.03,
             ease: "power3.out",
             scrollTrigger: {
               trigger: el,
@@ -322,21 +641,15 @@ export default function ArolaxEngine() {
         );
       });
 
-      // 3D Perspective Rotation Animation
-      document.querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"text_move"\'').forEach((el) => {
+    // 3D Perspective rotation for non-hero elements
+    document
+      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"text_move"\']')
+      .forEach((el) => {
+        if (el.closest(".elementor-element-d3528ce")) return;
         const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, .elementor-heading-title") || el;
         const text = titleEl.textContent?.trim();
         if (!text || titleEl.dataset.splitDone) return;
         titleEl.dataset.splitDone = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const duration = settings.text_duration || 1;
-        const stagger = settings.text_stagger || 0.02;
-        const rotationY = settings.text_rotation || -40;
 
         titleEl.innerHTML = "";
         const words = text.split(" ");
@@ -361,13 +674,13 @@ export default function ArolaxEngine() {
 
         gsap.fromTo(
           wordSpans,
-          { opacity: 0, rotationY: rotationY, y: 15 },
+          { opacity: 0, rotationY: -40, y: 15 },
           {
             opacity: 1,
             rotationY: 0,
             y: 0,
-            duration: duration,
-            stagger: stagger,
+            duration: 1,
+            stagger: 0.02,
             ease: "power2.out",
             scrollTrigger: {
               trigger: el,
@@ -377,11 +690,9 @@ export default function ArolaxEngine() {
           }
         );
       });
-    };
-    initTextAnimations();
 
     // ----------------------------------------------------
-    // 8. Rotating Badges & Wiggle Stickers Physics
+    // 9. Rotating Badges & Wiggle Stickers Physics
     // ----------------------------------------------------
     document.querySelectorAll<HTMLElement>('img[src*="text-img.webp"]').forEach((img) => {
       gsap.to(img, {
@@ -392,61 +703,15 @@ export default function ArolaxEngine() {
       });
     });
 
-    document.querySelectorAll<HTMLElement>(".floating-element, .wcf-live-anim-wiggle").forEach((el) => {
-      if (el.classList.contains("wcf-live-anim-wiggle")) {
-        gsap.to(el, {
-          rotation: 8,
-          duration: 1.8,
-          yoyo: true,
-          repeat: -1,
-          ease: "sine.inOut",
-        });
-      } else {
-        gsap.to(el, {
-          y: -12,
-          duration: 2.8,
-          yoyo: true,
-          repeat: -1,
-          ease: "sine.inOut",
-        });
-      }
-    });
-
-    // ----------------------------------------------------
-    // 9. Continuous Brand Marquee Slider
-    // ----------------------------------------------------
-    const brandSliderEl = document.querySelector<HTMLElement>(".elementor-widget-wcf--brand-slider .swiper");
-    if (brandSliderEl) {
-      const swiperWrapper = brandSliderEl.querySelector(".swiper-wrapper");
-      if (swiperWrapper) {
-        const slides = Array.from(swiperWrapper.children);
-        if (slides.length > 0 && slides.length < 18) {
-          // Duplicate slides to allow smooth continuous infinite loop
-          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
-          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
-        }
-      }
-
-      new Swiper(brandSliderEl, {
-        modules: [Autoplay],
-        loop: true,
-        slidesPerView: 2,
-        spaceBetween: 25,
-        speed: 4000,
-        allowTouchMove: false,
-        autoplay: {
-          delay: 0,
-          disableOnInteraction: false,
-          pauseOnMouseEnter: false,
-        },
-        breakpoints: {
-          640: { slidesPerView: 3, spaceBetween: 35 },
-          880: { slidesPerView: 4, spaceBetween: 40 },
-          1024: { slidesPerView: 5, spaceBetween: 50 },
-          1366: { slidesPerView: 5, spaceBetween: 60 },
-        },
+    document.querySelectorAll<HTMLElement>(".wcf-live-anim-wiggle").forEach((el) => {
+      gsap.to(el, {
+        rotation: 8,
+        duration: 1.8,
+        yoyo: true,
+        repeat: -1,
+        ease: "sine.inOut",
       });
-    }
+    });
 
     // ----------------------------------------------------
     // 10. Case Study Horizontal Pinned Gallery (GSAP MatchMedia)
@@ -584,7 +849,9 @@ export default function ArolaxEngine() {
     // 14. Video Popup Modal
     // ----------------------------------------------------
     const videoPopupWrap = document.getElementById("wcf-aae-global--popup-js");
-    const videoTriggers = document.querySelectorAll<HTMLElement>('.wcf--video-popup, [data-widget_type*="video-popup"], a[href*="youtube.com"]');
+    const videoTriggers = document.querySelectorAll<HTMLElement>(
+      '.wcf--video-popup, [data-widget_type*="video-popup"], a[href*="youtube.com"]'
+    );
 
     videoTriggers.forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -642,6 +909,11 @@ export default function ArolaxEngine() {
         lenis.scrollTo(0);
       });
     }
+
+    // Refresh ScrollTrigger after fonts load
+    document.fonts.ready.then(() => {
+      ScrollTrigger.refresh();
+    });
 
     // ----------------------------------------------------
     // Cleanup on unmount
