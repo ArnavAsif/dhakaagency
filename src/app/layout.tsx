@@ -1,28 +1,9 @@
 import type { Metadata } from "next";
-import { Teko, DM_Sans, Kanit } from "next/font/google";
 import "./globals.css";
 
-const teko = Teko({
-  variable: "--font-teko",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
-});
-
-const kanit = Kanit({
-  variable: "--font-kanit",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-});
-
 export const metadata: Metadata = {
-  title: "Web Design Agency - Arolax Replica",
-  description: "Arolax Web Design Agency created with Next.js, GSAP and Framer Motion",
+  title: "Web Design Agency",
+  description: "Web Design Agency replica built with Next.js and GSAP",
 };
 
 export default function RootLayout({
@@ -31,11 +12,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${teko.variable} ${dmSans.variable} ${kanit.variable} h-full antialiased`}
-    >
-      <body className="min-h-full bg-white text-[#121212] font-dm selection:bg-[#FF845D] selection:text-white overflow-x-hidden">
+    <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Kanit:ital,wght@0,100..900;1,100..900&family=Teko:wght@300..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+          rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/assets/css/arolax-exact.css" />
+      </head>
+      <body className="home wp-singular page-template page-template-elementor_header_footer page page-id-6 wp-theme-arolax ezd-body-docs joya-gl-blog arolax-base elementor-default elementor-template-full-width elementor-kit-3 elementor-page elementor-page-6 e--ua-blink e--ua-chrome e--ua-webkit">
         {children}
       </body>
     </html>
