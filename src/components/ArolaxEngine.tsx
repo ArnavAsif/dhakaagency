@@ -15,6 +15,14 @@ gsap.registerPlugin(ScrollTrigger);
 
 export default function ArolaxEngine() {
   useEffect(() => {
+    // Force manual scroll restoration to guarantee hero entry & preloader play from top on reload
+    if (typeof window !== "undefined") {
+      if ("scrollRestoration" in history) {
+        history.scrollRestoration = "manual";
+      }
+      window.scrollTo(0, 0);
+    }
+
     // ----------------------------------------------------
     // 1. Lenis Smooth Scroll Synced with GSAP ScrollTrigger
     // ----------------------------------------------------
@@ -143,11 +151,75 @@ export default function ArolaxEngine() {
     });
 
     // ====================================================
-    // 5. HERO ENTRY ANIMATION SEQUENCE (Runs on Page Load)
+    // 5. PRELOADER & HERO ENTRY ANIMATION SEQUENCE
     // ====================================================
+    const preloaderEl = document.querySelector<HTMLElement>("#arolax-preloader");
+    const countEl = document.querySelector<HTMLElement>(".arolax-preloader-count");
+    const barEl = document.querySelector<HTMLElement>(".arolax-preloader-bar");
+
+    // Freeze page while preloader runs
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
     const heroTl = gsap.timeline({
       defaults: { ease: "power2.out" },
-      delay: 0.1,
+      paused: true,
+    });
+
+    const startHeroSequence = () => {
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+
+      if (preloaderEl) {
+        gsap.to(preloaderEl, {
+          yPercent: -100,
+          duration: 0.85,
+          ease: "power4.inOut",
+          onComplete: () => {
+            preloaderEl.style.display = "none";
+            ScrollTrigger.refresh();
+          },
+        });
+      }
+
+      setTimeout(() => {
+        heroTl.play();
+      }, 150);
+    };
+
+    const counterObj = { val: 0 };
+    const loaderTl = gsap.timeline({
+      onUpdate: () => {
+        const rounded = Math.round(counterObj.val);
+        if (countEl) countEl.textContent = rounded.toString();
+        if (barEl) barEl.style.width = `${Math.min(100, rounded)}%`;
+      },
+    });
+
+    loaderTl.to(counterObj, {
+      val: 80,
+      duration: 0.5,
+      ease: "power1.out",
+    });
+
+    const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+    const windowReady = new Promise((resolve) => {
+      if (document.readyState === "complete") {
+        resolve(true);
+      } else {
+        window.addEventListener("load", () => resolve(true), { once: true });
+      }
+    });
+
+    Promise.all([fontsReady, windowReady]).then(() => {
+      loaderTl.to(counterObj, {
+        val: 100,
+        duration: 0.3,
+        ease: "power2.inOut",
+        onComplete: () => {
+          setTimeout(startHeroSequence, 100);
+        },
+      });
     });
 
     // (A) "WE ARE SKILLED IN" - Staggered Character Slide
@@ -316,15 +388,18 @@ export default function ArolaxEngine() {
     );
     if (descEl && !descEl.dataset.splitDone) {
       descEl.dataset.splitDone = "1";
-      const text = descEl.textContent?.trim() || "";
+      const rawText = (descEl.innerHTML || "")
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
       descEl.innerHTML = "";
-      const words = text.split(" ");
+      const words = rawText.split(" ");
       const wordSpans: HTMLElement[] = [];
 
       words.forEach((word) => {
         const wrap = document.createElement("span");
         wrap.style.display = "inline-block";
-        wrap.style.overflow = "hidden";
         wrap.style.verticalAlign = "top";
         wrap.style.marginRight = "0.28em";
 
@@ -340,8 +415,8 @@ export default function ArolaxEngine() {
 
       heroTl.fromTo(
         wordSpans,
-        { opacity: 0, x: -30 },
-        { opacity: 1, x: 0, duration: 1.1, stagger: 0.02 },
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.9, stagger: 0.02 },
         0.75
       );
     }
@@ -919,6 +994,8 @@ export default function ArolaxEngine() {
     // Cleanup on unmount
     // ----------------------------------------------------
     return () => {
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
       window.removeEventListener("resize", updateNavMode);
       window.removeEventListener("keydown", handleKeyDown);
       gsap.ticker.remove(tickerCb);

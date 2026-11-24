@@ -166,6 +166,87 @@ html.lenis, html.lenis body {
   font-family: var(--font-kanit), Kanit, sans-serif;
 }
 
+/* ====================================================
+   AROLAX PRELOADER
+   ==================================================== */
+.arolax-preloader {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #0d0d0d;
+  z-index: 99999999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  user-select: none;
+  overflow: hidden;
+}
+
+.arolax-preloader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+}
+
+.arolax-preloader-logo {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-kanit), Kanit, sans-serif;
+  font-weight: 800;
+  font-size: clamp(32px, 5vw, 52px);
+  color: #ffffff;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+.arolax-preloader-dot {
+  color: #c8f31d;
+  margin-left: 2px;
+}
+
+.arolax-preloader-bar-wrap {
+  width: 220px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.arolax-preloader-bar {
+  width: 0%;
+  height: 100%;
+  background: #c8f31d;
+  border-radius: 2px;
+  transition: width 0.08s linear;
+}
+
+.arolax-preloader-counter {
+  font-family: var(--font-kanit), Kanit, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.1em;
+}
+
+.arolax-preloader-count {
+  color: #ffffff;
+}
+
+/* Linear Continuous Brand Marquee Ticker */
+.wcf--brand-slider-wrapper .swiper-wrapper {
+  transition-timing-function: linear !important;
+}
+
 /* Prevent horizontal scroll and hide unwanted hero text */
 html, body {
   overflow-x: clip !important;
@@ -174,5 +255,15 @@ html, body {
 
 .elementor-element-affbc87 {
   display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
 }
 
