@@ -268,7 +268,14 @@ export default function ArolaxEngine() {
       heroTl.fromTo(
         heroRightImages,
         { opacity: 0, y: 70 },
-        { opacity: 1, y: 0, duration: 1.6, stagger: 0.12, ease: "power2.out" },
+        {
+          opacity: 1,
+          y: 0,
+          duration: 1.6,
+          stagger: 0.12,
+          ease: "power2.out",
+          clearProps: "transform",
+        },
         0.25
       );
     }
@@ -476,35 +483,7 @@ export default function ArolaxEngine() {
     }
 
     // ====================================================
-    // 6. HERO SCROLL PARALLAX (Red semicircle vs Pill image)
-    // ====================================================
-    const pillImage = document.querySelector<HTMLElement>(".elementor-element-cb48386");
-    const redImage = document.querySelector<HTMLElement>(".elementor-element-81b8cf6");
-    if (pillImage && redImage) {
-      gsap.to(pillImage, {
-        y: 65,
-        ease: "none",
-        scrollTrigger: {
-          trigger: ".elementor-element-d3528ce",
-          start: "top top",
-          end: "bottom top",
-          scrub: true,
-        },
-      });
-      gsap.to(redImage, {
-        y: -65,
-        ease: "none",
-        scrollTrigger: {
-          trigger: ".elementor-element-d3528ce",
-          start: "top top",
-          end: "bottom top",
-          scrub: true,
-        },
-      });
-    }
-
-    // ====================================================
-    // 7. CONTINUOUS BRAND MARQUEE SLIDER
+    // 6. CONTINUOUS BRAND MARQUEE SLIDER
     // ====================================================
     const marqueeSection = document.querySelector<HTMLElement>(".elementor-element-078aa45");
     const brandSliderWidget = document.querySelector<HTMLElement>(".elementor-element-f5003e6");
