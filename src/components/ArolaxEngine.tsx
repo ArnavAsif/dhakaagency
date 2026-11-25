@@ -13,19 +13,273 @@ import "swiper/css/navigation";
 
 gsap.registerPlugin(ScrollTrigger);
 
-export default function ArolaxEngine() {
-  useEffect(() => {
-    // Force manual scroll restoration to guarantee hero entry & preloader play from top on reload
-    if (typeof window !== "undefined") {
-      if ("scrollRestoration" in history) {
-        history.scrollRestoration = "manual";
+function parseSettings(el: Element): Record<string, any> {
+  try {
+    return JSON.parse(el.getAttribute("data-settings") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getWidgetTextTarget(widgetEl: HTMLElement): HTMLElement {
+  const container = widgetEl.querySelector<HTMLElement>(".elementor-widget-container");
+  if (container) {
+    const children = Array.from(container.children).filter(
+      (c): c is HTMLElement => c instanceof HTMLElement && c.tagName !== "STYLE" && c.tagName !== "SCRIPT"
+    );
+    if (children.length > 0) {
+      return children[children.length - 1];
+    }
+  }
+  return widgetEl;
+}
+
+/**
+ * Splits text nodes inside `root` into word spans (or char spans inside word spans)
+ * while preserving nested inline markup (e.g. `.highlight`, `.highlight-2`, `<br>`, `<img>`).
+ */
+function splitWordsOrChars(
+  root: HTMLElement,
+  mode: "word" | "char"
+): { words: HTMLElement[]; chars: HTMLElement[] } {
+  const words: HTMLElement[] = [];
+  const chars: HTMLElement[] = [];
+
+  const processNode = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || "";
+      if (!text.trim()) return;
+
+      const frag = document.createDocumentFragment();
+      const tokens = text.split(/(\s+)/);
+
+      tokens.forEach((token) => {
+        if (!token) return;
+        if (/^\s+$/.test(token)) {
+          frag.appendChild(document.createTextNode(" "));
+          return;
+        }
+
+        const wordSpan = document.createElement("span");
+        wordSpan.style.display = "inline-block";
+        wordSpan.style.position = "relative";
+
+        if (mode === "char") {
+          wordSpan.style.whiteSpace = "nowrap";
+          Array.from(token).forEach((ch) => {
+            const charSpan = document.createElement("span");
+            charSpan.textContent = ch;
+            charSpan.style.display = "inline-block";
+            charSpan.style.position = "relative";
+            wordSpan.appendChild(charSpan);
+            chars.push(charSpan);
+          });
+        } else {
+          wordSpan.textContent = token;
+        }
+
+        frag.appendChild(wordSpan);
+        words.push(wordSpan);
+      });
+
+      node.parentNode?.replaceChild(frag, node);
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const elNode = node as HTMLElement;
+      if (elNode.tagName === "BR" || elNode.tagName === "IMG" || elNode.tagName === "SVG") return;
+      Array.from(elNode.childNodes).forEach(processNode);
+    }
+  };
+
+  Array.from(root.childNodes).forEach(processNode);
+  return { words, chars };
+}
+
+/**
+ * Groups an element's rendered words/inline elements into visual line wrappers
+ * matching GSAP SplitText `{ type: "lines" }` or `{ type: "lines,words,chars" }`.
+ */
+function splitIntoVisualLines(
+  root: HTMLElement,
+  options: { lineClass?: string; splitChars?: boolean }
+): { lines: HTMLElement[]; chars: HTMLElement[] } {
+  // First tokenize direct/nested content into measurable inline units while keeping <br> and inline elements
+  const units: Array<{ node: Node; isBreak?: boolean }> = [];
+
+  const collectUnits = (parent: Node) => {
+    Array.from(parent.childNodes).forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const text = child.textContent || "";
+        const tokens = text.split(/(\s+)/);
+        tokens.forEach((token) => {
+          if (!token) return;
+          if (/^\s+$/.test(token)) {
+            units.push({ node: document.createTextNode(" ") });
+          } else {
+            const span = document.createElement("span");
+            span.style.display = "inline-block";
+            span.textContent = token;
+            units.push({ node: span });
+          }
+        });
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as HTMLElement;
+        if (el.tagName === "BR") {
+          units.push({ node: el, isBreak: true });
+        } else if (el.tagName === "IMG" || el.tagName === "SVG") {
+          units.push({ node: el });
+        } else if (el.tagName === "A" || el.tagName === "SPAN" || el.tagName === "STRONG" || el.tagName === "EM") {
+          // Preserve styling/href of inline tags by splitting their words into cloned shells
+          const text = el.textContent || "";
+          const tokens = text.split(/(\s+)/);
+          tokens.forEach((token) => {
+            if (!token) return;
+            if (/^\s+$/.test(token)) {
+              units.push({ node: document.createTextNode(" ") });
+            } else {
+              const clone = el.cloneNode(false) as HTMLElement;
+              clone.style.display = "inline-block";
+              clone.textContent = token;
+              units.push({ node: clone });
+            }
+          });
+        } else {
+          units.push({ node: el });
+        }
       }
-      window.scrollTo(0, 0);
+    });
+  };
+
+  collectUnits(root);
+
+  root.innerHTML = "";
+  units.forEach((u) => root.appendChild(u.node));
+
+  // Measure visual line breaks using bounding client rects
+  const lineBuckets: Node[][] = [];
+  let currentBucket: Node[] = [];
+  let currentTop: number | null = null;
+
+  units.forEach((u) => {
+    if (u.isBreak) {
+      if (currentBucket.length > 0) {
+        lineBuckets.push(currentBucket);
+        currentBucket = [];
+        currentTop = null;
+      }
+      return;
     }
 
-    // Unlock all Elementor lazy background containers (e.g. Section 2 about-2.webp)
-    document.querySelectorAll(".e-con.e-parent").forEach((el) => {
+    if (u.node.nodeType === Node.ELEMENT_NODE) {
+      const rect = (u.node as HTMLElement).getBoundingClientRect();
+      const top = Math.round(rect.top);
+      if (currentTop !== null && Math.abs(top - currentTop) > 6 && currentBucket.length > 0) {
+        lineBuckets.push(currentBucket);
+        currentBucket = [];
+      }
+      if (currentBucket.length === 0) {
+        currentTop = top;
+      }
+    }
+
+    currentBucket.push(u.node);
+  });
+
+  if (currentBucket.length > 0) {
+    lineBuckets.push(currentBucket);
+  }
+
+  root.innerHTML = "";
+  const lines: HTMLElement[] = [];
+  const chars: HTMLElement[] = [];
+
+  lineBuckets.forEach((bucket) => {
+    // Trim leading/trailing whitespace text nodes on each line
+    while (bucket.length && bucket[0].nodeType === Node.TEXT_NODE && !(bucket[0].textContent || "").trim()) {
+      bucket.shift();
+    }
+    while (
+      bucket.length &&
+      bucket[bucket.length - 1].nodeType === Node.TEXT_NODE &&
+      !(bucket[bucket.length - 1].textContent || "").trim()
+    ) {
+      bucket.pop();
+    }
+    if (!bucket.length) return;
+
+    const lineEl = document.createElement("span");
+    lineEl.style.display = "block";
+    lineEl.style.position = "relative";
+    if (options.lineClass) {
+      lineEl.className = options.lineClass;
+    }
+
+    bucket.forEach((n) => {
+      if (options.splitChars && n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as HTMLElement;
+        if (el.tagName !== "IMG" && el.tagName !== "SVG" && el.textContent) {
+          const wordText = el.textContent;
+          el.textContent = "";
+          el.style.whiteSpace = "nowrap";
+          Array.from(wordText).forEach((ch) => {
+            const chSpan = document.createElement("span");
+            chSpan.textContent = ch;
+            chSpan.style.display = "inline-block";
+            chSpan.style.position = "relative";
+            el.appendChild(chSpan);
+            chars.push(chSpan);
+          });
+        }
+      }
+      lineEl.appendChild(n);
+    });
+
+    root.appendChild(lineEl);
+    lines.push(lineEl);
+  });
+
+  return { lines, chars };
+}
+
+export default function ArolaxEngine() {
+  useEffect(() => {
+    let cancelled = false;
+    const cleanups: Array<() => void> = [];
+    const timers: number[] = [];
+
+    const addTimer = (fn: () => void, ms: number) => {
+      const id = window.setTimeout(() => {
+        if (!cancelled) fn();
+      }, ms);
+      timers.push(id);
+      return id;
+    };
+
+    const listen = <T extends EventTarget>(
+      target: T | null | undefined,
+      event: string,
+      handler: EventListenerOrEventListenerObject,
+      options?: AddEventListenerOptions | boolean
+    ) => {
+      if (!target) return;
+      target.addEventListener(event, handler, options);
+      cleanups.push(() => target.removeEventListener(event, handler, options));
+    };
+
+    // ----------------------------------------------------
+    // 0. Initial Scroll & Lazy Background Unlock
+    // ----------------------------------------------------
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+    window.scrollTo(0, 0);
+
+    document.querySelectorAll<HTMLElement>(".e-con.e-parent").forEach((el) => {
       el.classList.add("e-lazyloaded");
+    });
+
+    // Ensure images inside animated/hidden containers don't stall on lazy loading
+    document.querySelectorAll<HTMLImageElement>('img[loading="lazy"]').forEach((img) => {
+      img.loading = "eager";
     });
 
     // ----------------------------------------------------
@@ -47,18 +301,61 @@ export default function ArolaxEngine() {
     const tickerCb = (time: number) => lenis.raf(time * 1000);
     gsap.ticker.add(tickerCb);
     gsap.ticker.lagSmoothing(0);
+    cleanups.push(() => {
+      gsap.ticker.remove(tickerCb);
+      lenis.destroy();
+    });
 
     // ----------------------------------------------------
-    // 2. Responsive Navigation & Mobile Menu Toggle
+    // 2. Reference Orbit Preloader (.wcf-preloader)
     // ----------------------------------------------------
-    const navMenu = document.querySelector(".wcf__nav-menu");
-    const hamburger = document.querySelector(".wcf-menu-hamburger");
-    const closeBtn = document.querySelector(".wcf-menu-close");
-    const overlay = document.querySelector(".wcf-menu-overlay");
+    const preloaderEl = document.querySelector<HTMLElement>("#arolax-preloader");
+    if (preloaderEl) {
+      document.body.classList.add("wcf-preloader-active");
+      preloaderEl.style.display = "flex";
+      preloaderEl.style.opacity = "1";
+      preloaderEl.style.pointerEvents = "auto";
+
+      const hidePreloader = () => {
+        if (cancelled) return;
+        document.body.classList.remove("wcf-preloader-active");
+        preloaderEl.style.opacity = "0";
+        preloaderEl.style.pointerEvents = "none";
+        addTimer(() => {
+          preloaderEl.style.display = "none";
+          ScrollTrigger.refresh();
+        }, 250);
+      };
+
+      const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+      const windowReady = new Promise<void>((resolve) => {
+        if (document.readyState === "complete") {
+          resolve();
+        } else {
+          window.addEventListener("load", () => resolve(), { once: true });
+        }
+      });
+
+      Promise.all([fontsReady, windowReady]).then(() => {
+        addTimer(hidePreloader, 350);
+      });
+
+      cleanups.push(() => {
+        document.body.classList.remove("wcf-preloader-active");
+      });
+    }
+
+    // ----------------------------------------------------
+    // 3. Responsive Navigation & Mobile Menu Toggle
+    // ----------------------------------------------------
+    const navMenu = document.querySelector<HTMLElement>(".wcf__nav-menu");
+    const hamburger = document.querySelector<HTMLElement>(".wcf-menu-hamburger");
+    const closeBtn = document.querySelector<HTMLElement>(".wcf-menu-close");
+    const overlay = document.querySelector<HTMLElement>(".wcf-menu-overlay");
 
     const updateNavMode = () => {
       if (!navMenu) return;
-      if (window.innerWidth >= 1024) {
+      if (window.innerWidth > 1024) {
         navMenu.classList.add("desktop-menu-active");
         navMenu.classList.remove("mobile-menu-active", "wcf-nav-is-toggled");
       } else {
@@ -67,945 +364,237 @@ export default function ArolaxEngine() {
       }
     };
     updateNavMode();
-    window.addEventListener("resize", updateNavMode);
+    listen(window, "resize", updateNavMode);
 
     const openMenu = () => navMenu?.classList.add("wcf-nav-is-toggled");
     const closeMenu = () => navMenu?.classList.remove("wcf-nav-is-toggled");
 
-    hamburger?.addEventListener("click", openMenu);
-    closeBtn?.addEventListener("click", closeMenu);
-    overlay?.addEventListener("click", closeMenu);
+    listen(hamburger, "click", openMenu);
+    listen(closeBtn, "click", closeMenu);
+    listen(overlay, "click", closeMenu);
 
-    // Mobile submenu toggle
-    const menuItemsWithChildren = document.querySelectorAll(".menu-item-has-children > a");
-    menuItemsWithChildren.forEach((link) => {
-      link.addEventListener("click", (e) => {
-        if (window.innerWidth < 1024) {
+    document.querySelectorAll<HTMLElement>(".menu-item-has-children > a").forEach((link) => {
+      listen(link, "click", (e) => {
+        if (window.innerWidth <= 1024) {
           e.preventDefault();
-          const parent = link.parentElement;
-          parent?.classList.toggle("active");
+          link.parentElement?.classList.toggle("active");
         }
       });
     });
 
     // ----------------------------------------------------
-    // 3. Fullscreen Search Popup Overlay
+    // 4. Fullscreen Search Popup Overlay
     // ----------------------------------------------------
-    const searchWrapper = document.querySelector(".search--wrapper");
-    const searchToggle = document.querySelector(".wcf-search-toggle");
-    const searchClose = document.querySelector(".search--wrapper .toggle--close");
+    const searchWrapper = document.querySelector<HTMLElement>(".search--wrapper");
+    const searchToggle = document.querySelector<HTMLElement>(".wcf-search-toggle");
+    const searchClose = document.querySelector<HTMLElement>(".search--wrapper .toggle--close");
 
-    const toggleSearch = (e: Event) => {
+    listen(searchToggle, "click", (e) => {
       e.preventDefault();
       searchWrapper?.classList.toggle("search-visible");
-      const input = searchWrapper?.querySelector('input[type="search"]') as HTMLInputElement;
+      const input = searchWrapper?.querySelector<HTMLInputElement>('input[type="search"]');
       if (searchWrapper?.classList.contains("search-visible") && input) {
-        setTimeout(() => input.focus(), 300);
+        addTimer(() => input.focus(), 250);
       }
-    };
+    });
 
-    const closeSearch = (e: Event) => {
+    listen(searchClose, "click", (e) => {
       e.preventDefault();
       searchWrapper?.classList.remove("search-visible");
-    };
-
-    searchToggle?.addEventListener("click", toggleSearch);
-    searchClose?.addEventListener("click", closeSearch);
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        searchWrapper?.classList.remove("search-visible");
-        closeMenu();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
+    });
 
     // ----------------------------------------------------
-    // 4. Magnetic Buttons & Hover Ripple Fill (Explore Us, Circular CTAs)
+    // 5. Magnetic Buttons & Circular Hover Fill (exact animations.min.js)
     // ----------------------------------------------------
     document.querySelectorAll<HTMLElement>(".btn-wrapper").forEach((btnWrapper) => {
       const btnItem = btnWrapper.querySelector<HTMLElement>(".btn-item") || btnWrapper;
 
-      const onMouseMove = (e: MouseEvent) => {
+      listen(btnWrapper, "mousemove", (evt) => {
+        const e = evt as MouseEvent;
         const rect = btnWrapper.getBoundingClientRect();
         const relX = e.clientX - rect.left;
         const relY = e.clientY - rect.top;
-        const moveX = ((relX - rect.width / 2) / rect.width) * 50;
-        const moveY = ((relY - rect.height / 2) / rect.height) * 50;
+        const moveX = ((relX - rect.width / 2) / rect.width) * 80;
+        const moveY = ((relY - rect.height / 2) / rect.height) * 80;
 
         gsap.to(btnItem, {
           x: moveX,
           y: moveY,
-          duration: 0.35,
+          duration: 0.5,
           ease: "power2.out",
         });
-      };
+      });
 
-      const onMouseLeave = () => {
+      listen(btnWrapper, "mouseleave", () => {
         gsap.to(btnItem, {
           x: 0,
           y: 0,
           duration: 0.5,
-          ease: "elastic.out(1, 0.4)",
+          ease: "power2.out",
         });
-      };
-
-      btnWrapper.addEventListener("mousemove", onMouseMove);
-      btnWrapper.addEventListener("mouseleave", onMouseLeave);
+      });
     });
 
-    // Cursor-origin circular fill for .btn-hover-bgchange buttons
     document.querySelectorAll<HTMLElement>(".btn-hover-bgchange").forEach((btn) => {
-      let ripple = btn.querySelector<HTMLElement>(":scope > span.btn-ripple");
-      if (!ripple) {
-        ripple = document.createElement("span");
-        ripple.className = "btn-ripple";
-        btn.appendChild(ripple);
-      }
-      const updateRipplePos = (e: MouseEvent) => {
-        const rect = btn.getBoundingClientRect();
-        ripple!.style.left = `${e.clientX - rect.left}px`;
-        ripple!.style.top = `${e.clientY - rect.top}px`;
-      };
-      btn.addEventListener("mouseenter", updateRipplePos);
-      btn.addEventListener("mouseleave", updateRipplePos);
-    });
-
-    // ====================================================
-    // 5. PRELOADER & HERO ENTRY ANIMATION SEQUENCE
-    // ====================================================
-    const preloaderEl = document.querySelector<HTMLElement>("#arolax-preloader");
-    const countEl = document.querySelector<HTMLElement>(".arolax-preloader-count");
-    const barEl = document.querySelector<HTMLElement>(".arolax-preloader-bar");
-
-    // Freeze page while preloader runs
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
-
-    const heroTl = gsap.timeline({
-      defaults: { ease: "power2.out" },
-      paused: true,
-    });
-
-    const startHeroSequence = () => {
-      document.documentElement.style.overflow = "";
-      document.body.style.overflow = "";
-
-      if (preloaderEl) {
-        gsap.to(preloaderEl, {
-          yPercent: -100,
-          duration: 0.85,
-          ease: "power4.inOut",
-          onComplete: () => {
-            preloaderEl.style.display = "none";
-            ScrollTrigger.refresh();
-          },
-        });
-      }
-
-      setTimeout(() => {
-        heroTl.play();
-      }, 150);
-    };
-
-    const counterObj = { val: 0 };
-    const loaderTl = gsap.timeline({
-      onUpdate: () => {
-        const rounded = Math.round(counterObj.val);
-        if (countEl) countEl.textContent = rounded.toString();
-        if (barEl) barEl.style.width = `${Math.min(100, rounded)}%`;
-      },
-    });
-
-    loaderTl.to(counterObj, {
-      val: 80,
-      duration: 0.5,
-      ease: "power1.out",
-    });
-
-    const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
-    const windowReady = new Promise((resolve) => {
-      if (document.readyState === "complete") {
-        resolve(true);
-      } else {
-        window.addEventListener("load", () => resolve(true), { once: true });
-      }
-    });
-
-    Promise.all([fontsReady, windowReady]).then(() => {
-      loaderTl.to(counterObj, {
-        val: 100,
-        duration: 0.3,
-        ease: "power2.inOut",
-        onComplete: () => {
-          setTimeout(startHeroSequence, 100);
-        },
-      });
-    });
-
-    // (A) "WE ARE SKILLED IN" - Staggered Character Slide
-    const heroTitle = document.querySelector<HTMLElement>(".elementor-element-ac8608d .wcf--title");
-    if (heroTitle && !heroTitle.dataset.splitDone) {
-      heroTitle.dataset.splitDone = "1";
-      const text = heroTitle.textContent?.trim() || "";
-      heroTitle.innerHTML = "";
-      const words = text.split(" ");
-      const charSpans: HTMLElement[] = [];
-
-      words.forEach((word: string, wIdx: number) => {
-        const wordWrap = document.createElement("span");
-        wordWrap.style.display = "inline-block";
-        wordWrap.style.whiteSpace = "nowrap";
-
-        Array.from(word).forEach((char: string) => {
-          const charSpan = document.createElement("span");
-          charSpan.textContent = char;
-          charSpan.style.display = "inline-block";
-          charSpan.style.position = "relative";
-          charSpan.style.opacity = "0";
-          wordWrap.appendChild(charSpan);
-          charSpans.push(charSpan);
-        });
-
-        heroTitle.appendChild(wordWrap);
-        if (wIdx < words.length - 1) {
-          heroTitle.appendChild(document.createTextNode(" "));
-        }
-      });
-
-      heroTl.fromTo(
-        charSpans,
-        { opacity: 0, x: 50 },
-        { opacity: 1, x: 0, duration: 1.1, stagger: 0.035 },
-        0
-      );
-    }
-
-    // (B) Right-side Composite Artwork: Red Semicircle & Two Men
-    const heroRightImages = document.querySelectorAll<HTMLElement>(
-      ".elementor-element-81b8cf6, .elementor-element-cb48386"
-    );
-    if (heroRightImages.length) {
-      heroTl.fromTo(
-        heroRightImages,
-        { opacity: 0, y: 70 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: 1.6,
-          stagger: 0.12,
-          ease: "power2.out",
-          clearProps: "transform",
-        },
-        0.25
-      );
-    }
-
-    // (C) "WEB DESIGN" with Top/Bottom Accent Lines
-    const webDesignEl = document.querySelector<HTMLElement>(".elementor-element-f6b85e2 .elementor-heading-title");
-    const webDesignLines = document.querySelectorAll<HTMLElement>(
-      ".elementor-element-24178fa, .elementor-element-cd9cff7"
-    );
-    if (webDesignEl && !webDesignEl.dataset.splitDone) {
-      webDesignEl.dataset.splitDone = "1";
-      const text = webDesignEl.textContent?.trim() || "";
-      webDesignEl.innerHTML = "";
-      const words = text.split(/\s+/);
-      const spans: HTMLElement[] = [];
-
-      words.forEach((word) => {
-        const wrap = document.createElement("span");
-        wrap.style.display = "inline-block";
-        wrap.style.perspective = "600px";
-        wrap.style.marginRight = "0.2em";
-
-        const span = document.createElement("span");
-        span.textContent = word;
-        span.style.display = "inline-block";
-        span.style.opacity = "0";
-        span.style.transformOrigin = "top center -40";
-        wrap.appendChild(span);
-        webDesignEl.appendChild(wrap);
-        spans.push(span);
-      });
-
-      heroTl.fromTo(
-        spans,
-        { opacity: 0, rotationY: -40, y: 15 },
-        { opacity: 1, rotationY: 0, y: 0, duration: 0.9, stagger: 0.04 },
-        0.35
-      );
-      heroTl.fromTo(
-        webDesignLines,
-        { scaleX: 0, opacity: 0 },
-        { scaleX: 1, opacity: 1, duration: 0.8, transformOrigin: "left center" },
-        0.35
-      );
-    }
-
-    // (D) "AND"
-    const andEl = document.querySelector<HTMLElement>(".elementor-element-70f26dc .wcf--title");
-    if (andEl && !andEl.dataset.splitDone) {
-      andEl.dataset.splitDone = "1";
-      const text = andEl.textContent?.trim() || "";
-      andEl.innerHTML = "";
-      const wrap = document.createElement("span");
-      wrap.style.display = "inline-block";
-      wrap.style.perspective = "600px";
-
       const span = document.createElement("span");
-      span.textContent = text;
-      span.style.display = "inline-block";
-      span.style.opacity = "0";
-      span.style.transformOrigin = "top center -40";
-      wrap.appendChild(span);
-      andEl.appendChild(wrap);
+      btn.appendChild(span);
+      cleanups.push(() => span.remove());
 
-      heroTl.fromTo(
-        span,
-        { opacity: 0, rotationY: -40, y: 15 },
-        { opacity: 1, rotationY: 0, y: 0, duration: 0.9 },
-        0.48
-      );
-    }
+      const updatePos = (evt: Event) => {
+        const e = evt as MouseEvent;
+        const rect = btn.getBoundingClientRect();
+        span.style.left = `${e.clientX - rect.left}px`;
+        span.style.top = `${e.clientY - rect.top}px`;
+      };
 
-    // (E) "development" Neon Green Capsule & 3D Emoji Avatar
-    const devCapsule = document.querySelector<HTMLElement>(".elementor-element-624b12c");
-    if (devCapsule) {
-      heroTl.fromTo(
-        devCapsule,
-        { opacity: 0, y: 45 },
-        { opacity: 1, y: 0, duration: 1.2, ease: "power2.out" },
-        0.55
-      );
-    }
+      listen(btn, "mouseenter", updatePos);
+      listen(btn, "mouseout", updatePos);
+    });
 
-    // (F) Floating Down Arrow Icon ( ↓ )
-    const downArrow = document.querySelector<HTMLElement>(".elementor-element-1df6f7d");
-    if (downArrow) {
-      heroTl.fromTo(
-        downArrow,
-        { opacity: 0, y: 25 },
-        { opacity: 1, y: 0, duration: 0.8 },
-        0.65
-      );
-      gsap.to(downArrow, {
-        y: 6,
-        duration: 1.5,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    }
-
-    // (G) 3D Emoji Head Avatar Floating
-    const emojiHead = document.querySelector<HTMLElement>(".elementor-element-34c3477");
-    if (emojiHead) {
-      gsap.to(emojiHead, {
-        y: -7,
-        duration: 2.2,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    }
-
-    // (H) Paragraph Text Word-by-Word Reveal
-    const descEl = document.querySelector<HTMLElement>(
-      ".elementor-element-9a42484 .elementor-widget-container > *"
-    );
-    if (descEl && !descEl.dataset.splitDone) {
-      descEl.dataset.splitDone = "1";
-      const rawText = (descEl.innerHTML || "")
-        .replace(/<br\s*\/?>/gi, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      descEl.innerHTML = "";
-      const words = rawText.split(" ");
-      const wordSpans: HTMLElement[] = [];
-
-      words.forEach((word) => {
-        const wrap = document.createElement("span");
-        wrap.style.display = "inline-block";
-        wrap.style.verticalAlign = "top";
-        wrap.style.marginRight = "0.28em";
-
-        const span = document.createElement("span");
-        span.textContent = word;
-        span.style.display = "inline-block";
-        span.style.opacity = "0";
-
-        wrap.appendChild(span);
-        descEl.appendChild(wrap);
-        wordSpans.push(span);
-      });
-
-      heroTl.fromTo(
-        wordSpans,
-        { opacity: 0, y: 15 },
-        { opacity: 1, y: 0, duration: 0.9, stagger: 0.02 },
-        0.75
-      );
-    }
-
-    // (I) "GET STARTED NOW ->"
-    const getStartedBtn = document.querySelector<HTMLElement>(".elementor-element-819ca57");
-    if (getStartedBtn) {
-      heroTl.fromTo(
-        getStartedBtn,
-        { opacity: 0, x: -45 },
-        { opacity: 1, x: 0, duration: 1.1, ease: "power2.out" },
-        0.9
-      );
-    }
-
-    // (J) Watch Video Button & Crown Doodle
-    const watchVideoBtn = document.querySelector<HTMLElement>(
-      ".elementor-element-2e8d545, .elementor-element-22e300c"
-    );
-    const crownDoodle = document.querySelector<HTMLElement>(
-      ".elementor-element-baa7444, .elementor-repeater-item-01dbe21"
-    );
-    if (watchVideoBtn) {
-      heroTl.fromTo(
-        watchVideoBtn,
-        { opacity: 0, scale: 0.8 },
-        { opacity: 1, scale: 1, duration: 0.9, ease: "back.out(1.5)" },
-        0.6
-      );
-    }
-    if (crownDoodle) {
-      heroTl.fromTo(
-        crownDoodle,
-        { opacity: 0, y: -20 },
-        { opacity: 1, y: 0, duration: 1 },
-        0.5
-      );
-      gsap.to(crownDoodle, {
-        y: -6,
-        rotation: 3,
-        duration: 2.6,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    }
-
-    // (K) "We have 18k+ customers word-wide" Badge
-    const customersBadge = document.querySelector<HTMLElement>(".elementor-element-dfe69e2");
-    if (customersBadge) {
-      heroTl.fromTo(
-        customersBadge,
-        { opacity: 0, y: 30 },
-        { opacity: 1, y: 0, duration: 1 },
-        0.8
-      );
-    }
-
-    // ====================================================
-    // 6. CONTINUOUS BRAND MARQUEE SLIDER
-    // ====================================================
-    const marqueeSection = document.querySelector<HTMLElement>(".elementor-element-078aa45");
-    const brandSliderWidget = document.querySelector<HTMLElement>(".elementor-element-f5003e6");
-
-    if (marqueeSection && brandSliderWidget) {
-      // Entry fade-up on scroll
-      gsap.fromTo(
-        brandSliderWidget,
-        { opacity: 0, y: 40 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.8,
-          ease: "power2.out",
-          scrollTrigger: {
-            trigger: marqueeSection,
-            start: "top 88%",
-            once: true,
-          },
-        }
-      );
-    }
-
+    // ----------------------------------------------------
+    // 6. Continuous Brand Marquee Slider (exact slider.min.js config)
+    // ----------------------------------------------------
     const brandSliderEl = document.querySelector<HTMLElement>(
       ".elementor-widget-wcf--brand-slider .swiper"
     );
     if (brandSliderEl) {
-      const swiperWrapper = brandSliderEl.querySelector(".swiper-wrapper");
+      const swiperWrapper = brandSliderEl.querySelector<HTMLElement>(".swiper-wrapper");
       if (swiperWrapper) {
-        const slides = Array.from(swiperWrapper.children);
-        // Duplicate slides multiple times to guarantee completely seamless infinite loop
-        if (slides.length > 0 && slides.length < 24) {
-          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
-          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
-          slides.forEach((s) => swiperWrapper.appendChild(s.cloneNode(true)));
+        const origSlides = Array.from(swiperWrapper.children).filter(
+          (s) => !s.classList.contains("arolax-cloned-slide")
+        );
+        if (origSlides.length > 0 && origSlides.length < 18) {
+          for (let round = 0; round < 2; round++) {
+            origSlides.forEach((s) => {
+              const clone = s.cloneNode(true) as HTMLElement;
+              clone.classList.add("arolax-cloned-slide");
+              swiperWrapper.appendChild(clone);
+            });
+          }
         }
       }
 
-      new Swiper(brandSliderEl, {
+      const brandSwiper = new Swiper(brandSliderEl, {
         modules: [Autoplay],
         loop: true,
         slidesPerView: 2,
-        spaceBetween: 25,
+        spaceBetween: 20,
         speed: 5000,
         allowTouchMove: false,
         autoplay: {
-          delay: 0,
+          delay: 1,
           disableOnInteraction: false,
           pauseOnMouseEnter: false,
         },
         breakpoints: {
-          640: { slidesPerView: 3, spaceBetween: 35 },
-          880: { slidesPerView: 4, spaceBetween: 40 },
-          1024: { slidesPerView: 5, spaceBetween: 50 },
-          1366: { slidesPerView: 5, spaceBetween: 60 },
+          767: { slidesPerView: 4, spaceBetween: 20 },
+          880: { slidesPerView: 3, spaceBetween: 20 },
+          1024: { slidesPerView: 5, spaceBetween: 20 },
+          1200: { slidesPerView: 5, spaceBetween: 20 },
+          1366: { slidesPerView: 5, spaceBetween: 20 },
         },
+      });
+
+      cleanups.push(() => {
+        brandSwiper.destroy(true, true);
+        brandSliderEl.querySelectorAll(".arolax-cloned-slide").forEach((c) => c.remove());
       });
     }
 
-    // ====================================================
-    // 8. DOWNSTREAM SECTION SCROLL ANIMATIONS
-    // ====================================================
-    // Fade animations for non-hero containers
-    document
-      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-animation":"fade"\']')
-      .forEach((el) => {
-        // Skip hero items already animated by heroTl
-        if (el.closest(".elementor-element-d3528ce") || el.closest(".elementor-element-078aa45")) {
-          return;
-        }
-        if (el.dataset.fadeInit) return;
-        el.dataset.fadeInit = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const duration = settings["data-duration"] || 1;
-        const delay = settings.delay || 0;
-        const offset = settings["fade-offset"] || 40;
-        const fadeFrom = settings["fade-from"] || "bottom";
-        const ease = settings.ease === "bounce" ? "bounce.out" : settings.ease || "power2.out";
-
-        let initX = 0;
-        let initY = 0;
-        if (fadeFrom === "bottom") initY = offset;
-        else if (fadeFrom === "top") initY = -offset;
-        else if (fadeFrom === "left") initX = -offset;
-        else if (fadeFrom === "right") initX = offset;
-
-        gsap.fromTo(
-          el,
-          { opacity: 0, x: initX, y: initY },
-          {
-            opacity: 1,
-            x: 0,
-            y: 0,
-            duration: duration,
-            delay: delay,
-            ease: ease,
-            scrollTrigger: {
-              trigger: el,
-              start: "top 88%",
-              once: true,
-            },
-          }
-        );
-      });
-
-    // Character stagger animations for non-hero elements
-    document
-      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"char"\']')
-      .forEach((el) => {
-        if (el.closest(".elementor-element-d3528ce")) return;
-        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4") || el;
-        const text = titleEl.textContent?.trim();
-        if (!text || titleEl.dataset.splitDone) return;
-        titleEl.dataset.splitDone = "1";
-
-        titleEl.innerHTML = "";
-        const words = text.split(" ");
-        const charSpans: HTMLElement[] = [];
-
-        words.forEach((word: string, wIdx: number) => {
-          const wordWrap = document.createElement("span");
-          wordWrap.style.display = "inline-block";
-          wordWrap.style.whiteSpace = "nowrap";
-
-          Array.from(word).forEach((char: string) => {
-            const charSpan = document.createElement("span");
-            charSpan.textContent = char;
-            charSpan.style.display = "inline-block";
-            charSpan.style.opacity = "0";
-            wordWrap.appendChild(charSpan);
-            charSpans.push(charSpan);
-          });
-
-          titleEl.appendChild(wordWrap);
-          if (wIdx < words.length - 1) {
-            titleEl.appendChild(document.createTextNode(" "));
-          }
-        });
-
-        gsap.fromTo(
-          charSpans,
-          { opacity: 0, x: 40 },
-          {
-            opacity: 1,
-            x: 0,
-            duration: 1.1,
-            stagger: 0.035,
-            ease: "power2.out",
-            scrollTrigger: {
-              trigger: el,
-              start: "top 85%",
-              once: true,
-            },
-          }
-        );
-      });
-
-    // Helper: split text into word spans while preserving nested highlight spans & classes
-    const splitWordsPreservingMarkup = (
-      root: HTMLElement,
-      options?: { perspective?: string; transformOrigin?: string }
-    ): HTMLElement[] => {
-      const wordSpans: HTMLElement[] = [];
-
-      const processNode = (node: Node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const text = node.textContent || "";
-          if (!text.trim()) return;
-          const frag = document.createDocumentFragment();
-          const tokens = text.split(/(\s+)/);
-          tokens.forEach((token) => {
-            if (!token) return;
-            if (/^\s+$/.test(token)) {
-              frag.appendChild(document.createTextNode(" "));
-              return;
-            }
-            const wrap = document.createElement("span");
-            wrap.style.display = "inline-block";
-            wrap.style.verticalAlign = "baseline";
-            if (options?.perspective) {
-              wrap.style.perspective = options.perspective;
-            }
-
-            const inner = document.createElement("span");
-            inner.textContent = token;
-            inner.style.display = "inline-block";
-            inner.style.opacity = "0";
-            if (options?.transformOrigin) {
-              inner.style.transformOrigin = options.transformOrigin;
-            }
-
-            wrap.appendChild(inner);
-            frag.appendChild(wrap);
-            wordSpans.push(inner);
-          });
-          node.parentNode?.replaceChild(frag, node);
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          const elNode = node as HTMLElement;
-          if (elNode.tagName === "BR") return;
-          Array.from(elNode.childNodes).forEach(processNode);
-        }
-      };
-
-      Array.from(root.childNodes).forEach(processNode);
-      return wordSpans;
-    };
-
-    // Word stagger animations for non-hero elements (preserves .highlight / .highlight-2)
-    document
-      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"word"\']')
-      .forEach((el) => {
-        if (el.closest(".elementor-element-d3528ce")) return;
-        const titleEl = el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, p, .elementor-widget-container > *") || el;
-        const text = titleEl.textContent?.trim();
-        if (!text || titleEl.dataset.splitDone) return;
-        titleEl.dataset.splitDone = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const duration = Number(settings.text_duration ?? 1.2);
-        const delay = Number(settings.text_delay ?? 0);
-        const stagger = Number(settings.text_stagger ?? 0.03);
-        const tx = settings.text_translate_x !== undefined ? Number(settings.text_translate_x) : 0;
-        const ty = settings.text_translate_y !== undefined ? Number(settings.text_translate_y) : 35;
-
-        const wordSpans = splitWordsPreservingMarkup(titleEl);
-
-        gsap.fromTo(
-          wordSpans,
-          { opacity: 0, x: tx, y: ty },
-          {
-            opacity: 1,
-            x: 0,
-            y: 0,
-            duration,
-            delay,
-            stagger,
-            ease: "power2.out",
-            scrollTrigger: {
-              trigger: el,
-              start: "top 88%",
-              once: true,
-            },
-          }
-        );
-      });
-
-    // 3D Perspective rotation for non-hero elements (supports both rotationX and rotationY)
-    document
-      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf_text_animation":"text_move"\']')
-      .forEach((el) => {
-        if (el.closest(".elementor-element-d3528ce")) return;
-        const titleEl =
-          el.querySelector<HTMLElement>(".wcf--title, h1, h2, h3, h4, .elementor-heading-title, p, .elementor-widget-container > *") || el;
-        const text = titleEl.textContent?.trim();
-        if (!text || titleEl.dataset.splitDone) return;
-        titleEl.dataset.splitDone = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const duration = Number(settings.text_duration ?? 1);
-        const delay = Number(settings.text_delay ?? 0);
-        const stagger = Number(settings.text_stagger ?? 0.02);
-        const dir = settings.text_rotation_di === "x" ? "x" : "y";
-        const rot = Number(settings.text_rotation ?? -40);
-        const origin = settings.text_transform_origin || "top center -50";
-
-        const wordSpans = splitWordsPreservingMarkup(titleEl, {
-          perspective: "600px",
-          transformOrigin: origin,
-        });
-
-        const fromVars: gsap.TweenVars = { opacity: 0, y: 15 };
-        const toVars: gsap.TweenVars = {
-          opacity: 1,
-          y: 0,
-          duration,
-          delay,
-          stagger,
-          ease: "power2.out",
-          scrollTrigger: {
-            trigger: el,
-            start: "top 88%",
-            once: true,
-          },
-        };
-
-        if (dir === "x") {
-          fromVars.rotationX = rot;
-          toVars.rotationX = 0;
-        } else {
-          fromVars.rotationY = rot;
-          toVars.rotationY = 0;
-        }
-
-        gsap.fromTo(wordSpans, fromVars, toVars);
-      });
-
-    // Image clip-path reveal animations (e.g. Section 2 img-r-1.webp)
-    document
-      .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-image-animation":"reveal"\']')
-      .forEach((el) => {
-        if (el.dataset.revealInit) return;
-        el.dataset.revealInit = "1";
-
-        let settings: any = {};
-        try {
-          settings = JSON.parse(el.getAttribute("data-settings") || "{}");
-        } catch (e) {}
-
-        const startFrom = settings.aae_a_start_from || "right";
-        const ease = settings["image-ease"] || "power2.out";
-        const wrap = el.querySelector<HTMLElement>(".wcf--image") || el.querySelector<HTMLElement>(".elementor-widget-container") || el;
-        const img = el.querySelector<HTMLElement>("img");
-
-        let fromClip = "inset(0% 0% 0% 100%)";
-        if (startFrom === "left") fromClip = "inset(0% 100% 0% 0%)";
-        else if (startFrom === "bottom") fromClip = "inset(100% 0% 0% 0%)";
-        else if (startFrom === "top") fromClip = "inset(0% 0% 100% 0%)";
-
-        gsap.fromTo(
-          wrap,
-          { clipPath: fromClip },
-          {
-            clipPath: "inset(0% 0% 0% 0%)",
-            duration: 1.35,
-            ease,
-            scrollTrigger: {
-              trigger: el,
-              start: "top 85%",
-              once: true,
-            },
-          }
-        );
-
-        if (img) {
-          gsap.fromTo(
-            img,
-            { scale: 1.25 },
-            {
-              scale: 1,
-              duration: 1.35,
-              ease,
-              scrollTrigger: {
-                trigger: el,
-                start: "top 85%",
-                once: true,
-              },
-            }
-          );
-        }
-      });
-
-    // Gentle non-hero parallax for decorative elements with data-speed (e.g. Section 2 react-shape)
-    document.querySelectorAll<HTMLElement>(".elementor-element-5ed9c2f [data-speed]").forEach((el) => {
-      const speed = parseFloat(el.getAttribute("data-speed") || "1");
-      if (speed === 1) return;
-      const target = el.querySelector<HTMLElement>(".elementor-widget-container") || el;
-      const offset = (1 - speed) * 180;
-      gsap.fromTo(
-        target,
-        { y: -offset },
-        {
-          y: offset,
-          ease: "none",
-          scrollTrigger: {
-            trigger: el,
-            start: "top bottom",
-            end: "bottom top",
-            scrub: true,
-          },
-        }
-      );
-    });
-
     // ----------------------------------------------------
-    // 9. Rotating Badges & Wiggle Stickers Physics
-    // ----------------------------------------------------
-    document.querySelectorAll<HTMLElement>('img[src*="text-img.webp"]').forEach((img) => {
-      gsap.to(img, {
-        rotation: 360,
-        duration: 16,
-        repeat: -1,
-        ease: "none",
-      });
-    });
-
-    document.querySelectorAll<HTMLElement>(".wcf-live-anim-wiggle").forEach((el) => {
-      gsap.to(el, {
-        rotation: 8,
-        duration: 1.8,
-        yoyo: true,
-        repeat: -1,
-        ease: "sine.inOut",
-      });
-    });
-
-    // ----------------------------------------------------
-    // 10. Case Study Horizontal Pinned Gallery (GSAP MatchMedia)
-    // ----------------------------------------------------
-    const mm = gsap.matchMedia();
-    mm.add("(min-width: 768px)", () => {
-      const galleryScope = document.querySelector<HTMLElement>(".elementor-widget-arolax--gallery");
-      if (!galleryScope) return;
-
-      const sections = galleryScope.querySelectorAll<HTMLElement>(".g-slider--one .item");
-      const sections2 = galleryScope.querySelectorAll<HTMLElement>(".g-slider--two .item");
-      const progressCircle = galleryScope.querySelector<HTMLElement>(".progress-circle");
-
-      let scrollTimer: any = null;
-      const updateProgress = (self: any) => {
-        if (progressCircle) {
-          progressCircle.style.opacity = "1";
-          if (scrollTimer) clearTimeout(scrollTimer);
-          scrollTimer = setTimeout(() => {
-            progressCircle.style.opacity = "0";
-          }, 350);
-
-          const scrolled = (self.progress * 100).toFixed(0);
-          progressCircle.style.setProperty("--value", scrolled);
-        }
-      };
-
-      gsap.to(sections, {
-        xPercent: -150,
-        ease: "none",
-        scrollTrigger: {
-          trigger: galleryScope,
-          pin: true,
-          pinSpacing: true,
-          scrub: 1,
-          onUpdate: updateProgress,
-        },
-      });
-
-      gsap.to(sections2, {
-        xPercent: 150,
-        ease: "none",
-        scrollTrigger: {
-          trigger: galleryScope,
-          pin: false,
-          scrub: 1,
-        },
-      });
-    });
-
-    // ----------------------------------------------------
-    // 11. Testimonials: 3D Stack Cards Swiper
+    // 7. Testimonials 3D Stack Cards Swiper (zero loop warnings!)
     // ----------------------------------------------------
     const testSliderEl = document.querySelector<HTMLElement>(".arolax_testimonial_slider.swiper");
     if (testSliderEl) {
-      new Swiper(testSliderEl, {
-        modules: [EffectCards, Navigation, Pagination],
+      const swiperWrapper = testSliderEl.querySelector<HTMLElement>(".swiper-wrapper");
+      if (swiperWrapper) {
+        const origSlides = Array.from(swiperWrapper.children).filter(
+          (s) => !s.classList.contains("arolax-cloned-slide")
+        );
+        // Keep 3 slides total so 2 stacked cards fan cleanly behind the active card (matches reference)
+        if (origSlides.length > 0 && origSlides.length < 3) {
+          const clone = origSlides[0].cloneNode(true) as HTMLElement;
+          clone.classList.add("arolax-cloned-slide");
+          swiperWrapper.appendChild(clone);
+        }
+      }
+
+      const testSwiper = new Swiper(testSliderEl, {
+        modules: [Autoplay, EffectCards, Navigation, Pagination],
         effect: "cards",
         grabCursor: true,
-        loop: true,
+        loop: false,
+        rewind: true,
+        slidesPerView: 1,
+        speed: 500,
+        autoplay: {
+          delay: 3000,
+          disableOnInteraction: true,
+        },
         cardsEffect: {
-          slideShadows: false,
-          perSlideOffset: 14,
-          perSlideRotate: 4,
+          slideShadows: true,
+          rotate: true,
+          perSlideOffset: 8,
+          perSlideRotate: 2,
         },
         navigation: {
-          nextEl: ".wcf-arrow-next",
-          prevEl: ".wcf-arrow-prev",
+          nextEl: ".elementor-element-e060fd7 .wcf-arrow-next",
+          prevEl: ".elementor-element-e060fd7 .wcf-arrow-prev",
         },
+        pagination: {
+          el: ".elementor-element-e060fd7 .swiper-pagination",
+          clickable: true,
+        },
+      });
+
+      cleanups.push(() => {
+        testSwiper.destroy(true, true);
+        testSliderEl.querySelectorAll(".arolax-cloned-slide").forEach((c) => c.remove());
       });
     }
 
     // ----------------------------------------------------
-    // 12. Interactive Tabs
+    // 8. Empowering Skills Interactive Tabs (exact arolax-tabs.js)
     // ----------------------------------------------------
-    const tabs = document.querySelectorAll<HTMLElement>(".wcf--tabs, .arolax--tabs");
-    tabs.forEach((tabWrap) => {
-      const titles = tabWrap.querySelectorAll<HTMLElement>(".tab-title");
-      const contents = tabWrap.querySelectorAll<HTMLElement>(".tab-content-item, [class*='tab-content']");
+    document.querySelectorAll<HTMLElement>(".arolax--tabs, .wcf--tabs").forEach((tabWrap) => {
+      const allTitles = Array.from(tabWrap.querySelectorAll<HTMLElement>(".tab-title"));
+      const allContents = Array.from(tabWrap.querySelectorAll<HTMLElement>(".tab-content"));
+      if (!allTitles.length || !allContents.length) return;
 
-      titles.forEach((title, idx) => {
-        title.addEventListener("click", (e) => {
+      // Default initial state: hide all content, activate first title + matching mobile/desktop title, show first content
+      allContents.forEach((c, idx) => {
+        c.style.display = idx === 0 ? "block" : "none";
+      });
+      allTitles.forEach((t) => t.classList.remove("active"));
+
+      const firstControl = allTitles[0].getAttribute("aria-controls");
+      if (firstControl) {
+        allTitles
+          .filter((t) => t.getAttribute("aria-controls") === firstControl)
+          .forEach((t) => t.classList.add("active"));
+      } else {
+        allTitles[0].classList.add("active");
+      }
+
+      allTitles.forEach((title) => {
+        listen(title, "click", (e) => {
           e.preventDefault();
-          titles.forEach((t) => {
-            t.classList.remove("active");
-            t.setAttribute("aria-selected", "false");
-          });
-          title.classList.add("active");
-          title.setAttribute("aria-selected", "true");
+          if (title.classList.contains("active")) return;
 
-          contents.forEach((c, cIdx) => {
-            if (cIdx === idx) {
+          const activeTabId = title.getAttribute("aria-controls");
+          allTitles.forEach((t) => t.classList.remove("active"));
+          if (activeTabId) {
+            allTitles
+              .filter((t) => t.getAttribute("aria-controls") === activeTabId)
+              .forEach((t) => t.classList.add("active"));
+          } else {
+            title.classList.add("active");
+          }
+
+          allContents.forEach((c) => {
+            if (activeTabId && c.id === activeTabId) {
               c.style.display = "block";
-              gsap.fromTo(c, { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.35 });
+              gsap.fromTo(c, { opacity: 0 }, { opacity: 1, duration: 0.35, ease: "power2.out" });
             } else {
               c.style.display = "none";
             }
@@ -1015,74 +604,162 @@ export default function ArolaxEngine() {
     });
 
     // ----------------------------------------------------
-    // 13. FAQ Accordion
+    // 9. FAQ Accordion (exact wcf--global-core.min.js)
     // ----------------------------------------------------
-    const accordions = document.querySelectorAll<HTMLElement>(".elementor-accordion, .wcf-accordion");
-    accordions.forEach((acc) => {
-      const titles = acc.querySelectorAll<HTMLElement>(".elementor-tab-title, .wcf-accordion-title");
-      titles.forEach((title) => {
-        title.addEventListener("click", () => {
-          const content = title.nextElementSibling as HTMLElement;
-          const isActive = title.classList.contains("elementor-active");
+    document.querySelectorAll<HTMLElement>(".elementor-accordion").forEach((wrapper) => {
+      const items = Array.from(wrapper.querySelectorAll<HTMLElement>(".elementor-accordion-item"));
+      const isDefaultActive = wrapper.getAttribute("data-active") === "yes";
 
-          if (isActive) {
-            title.classList.remove("elementor-active");
-            if (content) content.style.display = "none";
-          } else {
-            titles.forEach((t) => {
-              t.classList.remove("elementor-active");
-              const c = t.nextElementSibling as HTMLElement;
-              if (c) c.style.display = "none";
-            });
+      items.forEach((item) => {
+        const title = item.querySelector<HTMLElement>(".elementor-tab-title");
+        const content = item.querySelector<HTMLElement>(".elementor-tab-content");
+        if (!title || !content) return;
 
-            title.classList.add("elementor-active");
-            if (content) {
-              content.style.display = "block";
-              gsap.fromTo(content, { height: 0, opacity: 0 }, { height: "auto", opacity: 1, duration: 0.35 });
+        const openOnInit = isDefaultActive && title.getAttribute("data-active") === "yes";
+        if (openOnInit) {
+          title.classList.add("elementor-active");
+          content.classList.add("elementor-active");
+          content.style.display = "block";
+        } else {
+          title.classList.remove("elementor-active");
+          content.classList.remove("elementor-active");
+          content.style.display = "none";
+        }
+
+        listen(title, "click", () => {
+          const isOpen = title.classList.contains("elementor-active");
+
+          // Close sibling items
+          items.forEach((other) => {
+            if (other === item) return;
+            const ot = other.querySelector<HTMLElement>(".elementor-tab-title");
+            const oc = other.querySelector<HTMLElement>(".elementor-tab-content");
+            if (ot && oc && ot.classList.contains("elementor-active")) {
+              ot.classList.remove("elementor-active");
+              oc.classList.remove("elementor-active");
+              gsap.to(oc, {
+                height: 0,
+                opacity: 0,
+                duration: 0.28,
+                ease: "power2.inOut",
+                onComplete: () => {
+                  oc.style.display = "none";
+                  oc.style.height = "";
+                  oc.style.opacity = "";
+                },
+              });
             }
+          });
+
+          if (isOpen) {
+            title.classList.remove("elementor-active");
+            content.classList.remove("elementor-active");
+            gsap.to(content, {
+              height: 0,
+              opacity: 0,
+              duration: 0.28,
+              ease: "power2.inOut",
+              onComplete: () => {
+                content.style.display = "none";
+                content.style.height = "";
+                content.style.opacity = "";
+              },
+            });
+          } else {
+            title.classList.add("elementor-active");
+            content.classList.add("elementor-active");
+            content.style.display = "block";
+            content.style.overflow = "hidden";
+            const targetHeight = content.scrollHeight;
+            gsap.fromTo(
+              content,
+              { height: 0, opacity: 0 },
+              {
+                height: targetHeight,
+                opacity: 1,
+                duration: 0.32,
+                ease: "power2.out",
+                onComplete: () => {
+                  content.style.height = "";
+                  content.style.overflow = "";
+                },
+              }
+            );
           }
         });
       });
     });
 
     // ----------------------------------------------------
-    // 14. Video Popup Modal
+    // 10. Video Popup Modal (exact aae-video-popup.min.js)
     // ----------------------------------------------------
     const videoPopupWrap = document.getElementById("wcf-aae-global--popup-js");
-    const videoTriggers = document.querySelectorAll<HTMLElement>(
-      '.wcf--video-popup, [data-widget_type*="video-popup"], a[href*="youtube.com"]'
-    );
+    const popupBox = videoPopupWrap?.querySelector<HTMLElement>(".wcf--popup-video");
+    const popupContainer = videoPopupWrap?.querySelector<HTMLElement>(".aae-popup-content-container");
+    const popupCloseBtn = videoPopupWrap?.querySelector<HTMLElement>(".wcf--popup-close");
+    let videoTimeline: gsap.core.Timeline | null = null;
 
-    videoTriggers.forEach((btn) => {
-      btn.addEventListener("click", (e) => {
+    const closeVideoPopup = () => {
+      if (!videoPopupWrap) return;
+      if (videoTimeline) {
+        videoTimeline.timeScale(1.6).reverse();
+        videoTimeline = null;
+      } else {
+        gsap.set(videoPopupWrap, { opacity: 0, visibility: "hidden" });
+      }
+      addTimer(() => {
+        if (popupContainer) popupContainer.innerHTML = "";
+      }, 450);
+    };
+
+    document.querySelectorAll<HTMLElement>(".wcf-popup-btn").forEach((btn) => {
+      listen(btn, "click", (e) => {
         e.preventDefault();
-        if (videoPopupWrap) {
-          videoPopupWrap.style.display = "flex";
-          videoPopupWrap.classList.add("wcf--popup-active");
-          const iframe = videoPopupWrap.querySelector("iframe");
-          if (iframe) {
-            iframe.src = "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1";
-          }
-        }
+        if (!videoPopupWrap || !popupBox || !popupContainer) return;
+
+        const src =
+          btn.getAttribute("data-src") ||
+          "https://crowdytheme.com/assets/wp-content/uploads/2024/06/video_brodcust.mp4";
+        const overlayColor = btn.getAttribute("data-overlay-color");
+        if (overlayColor) videoPopupWrap.style.backgroundColor = overlayColor;
+
+        popupContainer.innerHTML = /\.(mp4|webm|ogg)(\?.*)?$/i.test(src)
+          ? `<video src="${src}" controls autoplay playsinline></video>`
+          : `<iframe src="${src}" allow="autoplay; fullscreen" allowfullscreen></iframe>`;
+
+        gsap.set(popupBox, { clearProps: "transform,filter" });
+        videoTimeline = gsap
+          .timeline({ defaults: { ease: "power2.inOut" } })
+          .to(videoPopupWrap, { scaleY: 0.01, x: 1, opacity: 1, visibility: "visible", duration: 0.35 })
+          .to(videoPopupWrap, { scaleY: 1, duration: 0.45 })
+          .fromTo(
+            popupBox,
+            { scaleX: 1, scaleY: 0, opacity: 0 },
+            { scaleX: 1, scaleY: 1, opacity: 1, visibility: "visible", duration: 0.55 },
+            "-=0.3"
+          );
       });
     });
 
-    const popupCloseBtn = videoPopupWrap?.querySelector(".wcf--popup-close, .close");
-    popupCloseBtn?.addEventListener("click", () => {
-      if (videoPopupWrap) {
-        videoPopupWrap.style.display = "none";
-        videoPopupWrap.classList.remove("wcf--popup-active");
-        const iframe = videoPopupWrap.querySelector("iframe");
-        if (iframe) iframe.src = "";
+    listen(popupCloseBtn, "click", closeVideoPopup);
+    listen(videoPopupWrap, "click", (e) => {
+      if (e.target === videoPopupWrap) closeVideoPopup();
+    });
+
+    listen(window, "keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Escape") {
+        searchWrapper?.classList.remove("search-visible");
+        closeMenu();
+        if (videoTimeline) closeVideoPopup();
       }
     });
 
     // ----------------------------------------------------
-    // 15. Scroll-To-Top Circular Progress & Smooth Return
+    // 11. Scroll-To-Top Circular Progress & Smooth Return
     // ----------------------------------------------------
     const scrollToTopBtn = document.querySelector<HTMLElement>(".wcf-scroll-to-top");
     if (scrollToTopBtn) {
-      const progressPath = scrollToTopBtn.querySelector(".progress-circle path") as SVGPathElement;
+      const progressPath = scrollToTopBtn.querySelector<SVGPathElement>(".progress-circle path");
       let pathLength = 0;
       if (progressPath) {
         pathLength = progressPath.getTotalLength();
@@ -1097,36 +774,332 @@ export default function ArolaxEngine() {
           const progress = pathLength - (scroll * pathLength) / maxScroll;
           progressPath.style.strokeDashoffset = `${progress}`;
         }
-        if (scroll > 150) {
+        if (scroll > 100) {
           scrollToTopBtn.classList.add("show-scroll-to-top");
         } else {
           scrollToTopBtn.classList.remove("show-scroll-to-top");
         }
       };
 
-      window.addEventListener("scroll", updateScrollProgress, { passive: true });
-      scrollToTopBtn.addEventListener("click", () => {
-        lenis.scrollTo(0);
-      });
+      updateScrollProgress();
+      listen(window, "scroll", updateScrollProgress, { passive: true });
+      listen(scrollToTopBtn, "click", () => lenis.scrollTo(0));
     }
 
-    // Refresh ScrollTrigger after fonts load
-    document.fonts.ready.then(() => {
+    // ----------------------------------------------------
+    // 12. GSAP Scroll & Text Animations (Wrapped in gsap.context for clean StrictMode revert!)
+    // ----------------------------------------------------
+    const gsapCtx = gsap.context(() => {
+      // (A) Fade animations — exact match to animations.min.js fade_animation()
+      document
+        .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-animation":"fade"\']')
+        .forEach((el) => {
+          const settings = parseSettings(el);
+          if (settings["wcf-animation"] !== "fade") return;
+
+          const duration = Number(settings["data-duration"] ?? 1.5);
+          const delay = Number(settings.delay ?? 0.15);
+          const offset = Number(settings["fade-offset"] ?? 50);
+          const fadeFrom = settings["fade-from"] || "bottom";
+          const rawEase = settings.ease || "power2.out";
+          const ease = rawEase === "bounce" ? "bounce.out" : rawEase;
+
+          const fromVars: gsap.TweenVars = {
+            opacity: 0,
+            duration,
+            delay,
+            ease,
+            clearProps: "transform,opacity",
+            scrollTrigger: {
+              trigger: el,
+              start: "top 88%",
+              once: true,
+            },
+          };
+
+          if (fadeFrom === "bottom") fromVars.y = offset;
+          else if (fadeFrom === "top") fromVars.y = -offset;
+          else if (fadeFrom === "left") fromVars.x = -offset;
+          else if (fadeFrom === "right") fromVars.x = offset;
+
+          gsap.from(el, fromVars);
+        });
+
+      // (B) Image Reveal animation — exact match to animations.min.js image_animation("reveal")
+      document
+        .querySelectorAll<HTMLElement>('[data-settings*=\'"wcf-image-animation":"reveal"\']')
+        .forEach((el) => {
+          const settings = parseSettings(el);
+          if (settings["wcf-image-animation"] !== "reveal") return;
+
+          const startFrom = settings.aae_a_start_from || "right";
+          const ease = settings["image-ease"] || "power2.out";
+          const wrap =
+            el.querySelector<HTMLElement>(".wcf--image") ||
+            el.querySelector<HTMLElement>(".elementor-widget-container");
+          const img = el.querySelector<HTMLElement>("img");
+          if (!wrap || !img) return;
+
+          if (wrap.parentElement) {
+            wrap.parentElement.style.overflow = "hidden";
+          }
+          wrap.style.overflow = "hidden";
+
+          const wrapFrom: gsap.TweenVars = { duration: 1.5, ease };
+          const imgFrom: gsap.TweenVars = { scale: 1.3, duration: 1.5, ease };
+
+          switch (startFrom) {
+            case "left":
+              wrapFrom.xPercent = 100;
+              imgFrom.xPercent = -100;
+              break;
+            case "right":
+              wrapFrom.xPercent = -100;
+              imgFrom.xPercent = 100;
+              break;
+            case "top":
+              wrapFrom.yPercent = 100;
+              imgFrom.yPercent = -100;
+              break;
+            case "bottom":
+              wrapFrom.yPercent = -100;
+              imgFrom.yPercent = 100;
+              break;
+          }
+
+          const tl = gsap.timeline({
+            scrollTrigger: {
+              trigger: wrap,
+              start: "top 80%",
+              once: true,
+            },
+          });
+
+          tl.from(wrap, wrapFrom, 0).from(img, imgFrom, 0);
+        });
+
+      // (C) ScrollSmoother-equivalent `data-speed` parallax across ALL 9 parallax elements
+      const mm = gsap.matchMedia();
+      mm.add("(min-width: 768px)", () => {
+        document.querySelectorAll<HTMLElement>("[data-speed]").forEach((el) => {
+          const speed = parseFloat(el.getAttribute("data-speed") || "1");
+          if (isNaN(speed) || speed === 1) return;
+
+          // Target the inner container so outer fade-in transforms never conflict
+          const target = el.querySelector<HTMLElement>(".elementor-widget-container") || el;
+          const travel = (1 - speed) * 220;
+
+          gsap.fromTo(
+            target,
+            { y: -travel * 0.5 },
+            {
+              y: travel * 0.5,
+              ease: "none",
+              scrollTrigger: {
+                trigger: el,
+                start: "top bottom",
+                end: "bottom top",
+                scrub: true,
+              },
+            }
+          );
+        });
+
+        // (D) Case Study Horizontal Pinned Gallery — exact match to arolax-gallery.js
+        const galleryScope = document.querySelector<HTMLElement>(".elementor-widget-arolax--gallery");
+        if (galleryScope) {
+          const sections = galleryScope.querySelectorAll<HTMLElement>(".g-slider--one .item");
+          const sections2 = galleryScope.querySelectorAll<HTMLElement>(".g-slider--two .item");
+          const progressCircle = galleryScope.querySelector<HTMLElement>(".progress-circle");
+
+          let scrollTimer: number | null = null;
+          const updateProgress = (self: ScrollTrigger) => {
+            if (!progressCircle) return;
+            progressCircle.style.opacity = "1";
+            if (scrollTimer !== null) window.clearTimeout(scrollTimer);
+            scrollTimer = window.setTimeout(() => {
+              progressCircle.style.opacity = "0";
+            }, 300);
+            progressCircle.style.setProperty("--value", (self.progress * 100).toFixed(0));
+          };
+
+          if (sections.length) {
+            gsap.to(sections, {
+              xPercent: -150,
+              ease: "none",
+              scrollTrigger: {
+                trigger: galleryScope,
+                pin: true,
+                pinSpacing: true,
+                scrub: 1,
+                onUpdate: updateProgress,
+              },
+            });
+          }
+
+          if (sections2.length) {
+            gsap.to(sections2, {
+              xPercent: 150,
+              ease: "none",
+              scrollTrigger: {
+                trigger: galleryScope,
+                pin: false,
+                scrub: 1,
+              },
+            });
+          }
+        }
+      });
+    });
+
+    // (E) Text Animations — initialized after fonts are ready (exact match to animations.min.js)
+    let textCtx: gsap.Context | null = null;
+    const fontsPromise = document.fonts ? document.fonts.ready : Promise.resolve();
+
+    fontsPromise.then(() => {
+      if (cancelled) return;
+
+      textCtx = gsap.context(() => {
+        document.querySelectorAll<HTMLElement>("[data-settings*='wcf_text_animation']").forEach((el) => {
+          const settings = parseSettings(el);
+          const animType = settings.wcf_text_animation;
+          if (!animType || animType === "none") return;
+
+          const target = getWidgetTextTarget(el);
+          if (!target || !target.textContent?.trim()) return;
+
+          const originalHTML = target.innerHTML;
+          cleanups.push(() => {
+            target.innerHTML = originalHTML;
+          });
+
+          if (animType === "char" || animType === "word") {
+            const duration = Number(settings.text_duration ?? 1);
+            const delay = Number(settings.text_delay ?? 0.15);
+            const stagger = Number(settings.text_stagger ?? 0.02);
+            const tx = settings.text_translate_x !== undefined ? Number(settings.text_translate_x) : 0;
+            const ty = settings.text_translate_y !== undefined ? Number(settings.text_translate_y) : 0;
+
+            const { words, chars } = splitWordsOrChars(target, animType);
+            const items = animType === "char" ? chars : words;
+            if (!items.length) return;
+
+            const fromVars: gsap.TweenVars = {
+              duration,
+              autoAlpha: 0,
+              delay,
+              stagger,
+              ease: "power2.out",
+              scrollTrigger: {
+                trigger: el,
+                start: "top 88%",
+                once: true,
+              },
+            };
+            if (tx) fromVars.x = tx;
+            if (ty) fromVars.y = ty;
+
+            gsap.from(items, fromVars);
+          } else if (animType === "text_move") {
+            const duration = Number(settings.text_duration ?? 1);
+            const delay = Number(settings.text_delay ?? 0.15);
+            const stagger = Number(settings.text_stagger ?? 0.02);
+            const dir = settings.text_rotation_di === "y" ? "y" : "x";
+            const rot = Number(settings.text_rotation ?? -80);
+            const origin = settings.text_transform_origin || "top center -50";
+
+            const moveTargets: HTMLElement[] =
+              target.classList.contains("wcf--text") && target.children.length > 0
+                ? Array.from(target.children).filter((c): c is HTMLElement => c instanceof HTMLElement)
+                : [target];
+
+            const allLines: HTMLElement[] = [];
+            moveTargets.forEach((mt) => {
+              gsap.set(mt, { perspective: 400 });
+              const { lines } = splitIntoVisualLines(mt, {});
+              allLines.push(...lines);
+            });
+
+            if (!allLines.length) return;
+
+            const fromVars: gsap.TweenVars = {
+              duration,
+              delay,
+              opacity: 0,
+              force3D: true,
+              transformOrigin: origin,
+              stagger,
+              ease: "power2.out",
+              scrollTrigger: {
+                trigger: el,
+                start: "top 88%",
+                once: true,
+              },
+            };
+            if (dir === "x") fromVars.rotationX = rot;
+            else fromVars.rotationY = rot;
+
+            gsap.from(allLines, fromVars);
+          } else if (animType === "text_reveal") {
+            const duration = Number(settings.text_duration ?? 1);
+            const delay = Number(settings.text_delay ?? 0.15);
+            const stagger = Number(settings.text_stagger ?? 0.02);
+
+            const { chars } = splitIntoVisualLines(target, {
+              lineClass: "anim-reveal-line",
+              splitChars: true,
+            });
+            if (!chars.length) return;
+
+            gsap.from(chars, {
+              duration,
+              delay,
+              ease: "circ.out",
+              y: 80,
+              stagger,
+              opacity: 0,
+              scrollTrigger: {
+                trigger: el,
+                start: "top 88%",
+                once: true,
+              },
+            });
+          }
+        });
+      });
+
       ScrollTrigger.refresh();
     });
 
+    // Refresh ScrollTrigger whenever images finish loading
+    let refreshTimer: number | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      refreshTimer = addTimer(() => ScrollTrigger.refresh(), 120);
+    };
+
+    document.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+      if (!img.complete) {
+        listen(img, "load", scheduleRefresh, { once: true });
+      }
+    });
+
     // ----------------------------------------------------
-    // Cleanup on unmount
+    // Cleanup on unmount (StrictMode safe!)
     // ----------------------------------------------------
     return () => {
-      document.documentElement.style.overflow = "";
-      document.body.style.overflow = "";
-      window.removeEventListener("resize", updateNavMode);
-      window.removeEventListener("keydown", handleKeyDown);
-      gsap.ticker.remove(tickerCb);
-      lenis.destroy();
-      mm.revert();
-      ScrollTrigger.getAll().forEach((st) => st.kill());
+      cancelled = true;
+      timers.forEach((id) => window.clearTimeout(id));
+      textCtx?.revert();
+      gsapCtx.revert();
+      // Run DOM/listener/Swiper cleanups in reverse order
+      for (let i = cleanups.length - 1; i >= 0; i--) {
+        try {
+          cleanups[i]();
+        } catch {
+          // ignore
+        }
+      }
     };
   }, []);
 
