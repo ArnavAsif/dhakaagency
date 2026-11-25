@@ -289,10 +289,41 @@ export default function ArolaxEngine() {
       el.classList.add("e-lazyloaded");
     });
 
-    // Ensure images inside animated/hidden containers don't stall on lazy loading
-    document.querySelectorAll<HTMLImageElement>('img[loading="lazy"]').forEach((img) => {
-      img.loading = "eager";
-    });
+    // Keep native lazy loading on below-the-fold images; only promote hero images
+    document
+      .querySelectorAll<HTMLImageElement>(".elementor-element-5973527 img[loading='lazy']")
+      .forEach((img) => {
+        img.loading = "eager";
+      });
+
+    // Lazy-load & autoplay background videos only when scrolled near viewport
+    const lazyVideos = document.querySelectorAll<HTMLVideoElement>(
+      'video[data-lazy-autoplay="true"][data-src]'
+    );
+    if (lazyVideos.length > 0 && "IntersectionObserver" in window) {
+      const videoObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            const video = entry.target as HTMLVideoElement;
+            if (entry.isIntersecting) {
+              const src = video.getAttribute("data-src");
+              if (src && !video.src) {
+                video.src = src;
+                video.load();
+              }
+              video.play().catch(() => {
+                // ignore autoplay policy errors
+              });
+            } else if (!video.paused) {
+              video.pause();
+            }
+          });
+        },
+        { rootMargin: "300px 0px" }
+      );
+      lazyVideos.forEach((v) => videoObserver.observe(v));
+      cleanups.push(() => videoObserver.disconnect());
+    }
 
     // ----------------------------------------------------
     // 1. Lenis Smooth Scroll Synced with GSAP ScrollTrigger
@@ -328,28 +359,27 @@ export default function ArolaxEngine() {
       preloaderEl.style.opacity = "1";
       preloaderEl.style.pointerEvents = "auto";
 
+      let preloaderHidden = false;
       const hidePreloader = () => {
-        if (cancelled) return;
+        if (cancelled || preloaderHidden) return;
+        preloaderHidden = true;
         document.body.classList.remove("wcf-preloader-active");
         preloaderEl.style.opacity = "0";
         preloaderEl.style.pointerEvents = "none";
         addTimer(() => {
           preloaderEl.style.display = "none";
           ScrollTrigger.refresh();
-        }, 250);
+        }, 200);
       };
 
+      // Hide preloader promptly once fonts are ready, with a hard 800ms ceiling so slow external resources never stall the page
       const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
-      const windowReady = new Promise<void>((resolve) => {
-        if (document.readyState === "complete") {
-          resolve();
-        } else {
-          window.addEventListener("load", () => resolve(), { once: true });
-        }
+      const maxWait = new Promise<void>((resolve) => {
+        addTimer(resolve, 800);
       });
 
-      Promise.all([fontsReady, windowReady]).then(() => {
-        addTimer(hidePreloader, 350);
+      Promise.race([fontsReady, maxWait]).then(() => {
+        addTimer(hidePreloader, 120);
       });
 
       cleanups.push(() => {
