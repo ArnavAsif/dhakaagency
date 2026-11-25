@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import Lenis from "lenis";
+
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Lenis from "lenis";
 import Swiper from "swiper";
 import { Autoplay, EffectCards, Navigation, Pagination } from "swiper/modules";
+
 import "swiper/css";
 import "swiper/css/effect-cards";
 import "swiper/css/pagination";
@@ -13,7 +15,7 @@ import "swiper/css/navigation";
 
 gsap.registerPlugin(ScrollTrigger);
 
-function parseSettings(el: Element): Record<string, any> {
+function parseSettings(el: Element): Record<string, string | number | undefined> {
   try {
     return JSON.parse(el.getAttribute("data-settings") || "{}");
   } catch {
@@ -25,7 +27,8 @@ function getWidgetTextTarget(widgetEl: HTMLElement): HTMLElement {
   const container = widgetEl.querySelector<HTMLElement>(".elementor-widget-container");
   if (container) {
     const children = Array.from(container.children).filter(
-      (c): c is HTMLElement => c instanceof HTMLElement && c.tagName !== "STYLE" && c.tagName !== "SCRIPT"
+      (c): c is HTMLElement =>
+        c instanceof HTMLElement && c.tagName !== "STYLE" && c.tagName !== "SCRIPT"
     );
     if (children.length > 0) {
       return children[children.length - 1];
@@ -127,7 +130,12 @@ function splitIntoVisualLines(
           units.push({ node: el, isBreak: true });
         } else if (el.tagName === "IMG" || el.tagName === "SVG") {
           units.push({ node: el });
-        } else if (el.tagName === "A" || el.tagName === "SPAN" || el.tagName === "STRONG" || el.tagName === "EM") {
+        } else if (
+          el.tagName === "A" ||
+          el.tagName === "SPAN" ||
+          el.tagName === "STRONG" ||
+          el.tagName === "EM"
+        ) {
           // Preserve styling/href of inline tags by splitting their words into cloned shells
           const text = el.textContent || "";
           const tokens = text.split(/(\s+)/);
@@ -194,7 +202,11 @@ function splitIntoVisualLines(
 
   lineBuckets.forEach((bucket) => {
     // Trim leading/trailing whitespace text nodes on each line
-    while (bucket.length && bucket[0].nodeType === Node.TEXT_NODE && !(bucket[0].textContent || "").trim()) {
+    while (
+      bucket.length &&
+      bucket[0].nodeType === Node.TEXT_NODE &&
+      !(bucket[0].textContent || "").trim()
+    ) {
       bucket.shift();
     }
     while (
@@ -695,7 +707,9 @@ export default function ArolaxEngine() {
     // ----------------------------------------------------
     const videoPopupWrap = document.getElementById("wcf-aae-global--popup-js");
     const popupBox = videoPopupWrap?.querySelector<HTMLElement>(".wcf--popup-video");
-    const popupContainer = videoPopupWrap?.querySelector<HTMLElement>(".aae-popup-content-container");
+    const popupContainer = videoPopupWrap?.querySelector<HTMLElement>(
+      ".aae-popup-content-container"
+    );
     const popupCloseBtn = videoPopupWrap?.querySelector<HTMLElement>(".wcf--popup-close");
     let videoTimeline: gsap.core.Timeline | null = null;
 
@@ -719,7 +733,7 @@ export default function ArolaxEngine() {
 
         const src =
           btn.getAttribute("data-src") ||
-          "https://crowdytheme.com/assets/wp-content/uploads/2024/06/video_brodcust.mp4";
+          "https://sgp1.digitaloceanspaces.com/hafsnitcontent/videos/0509-1747336236402.mp4";
         const overlayColor = btn.getAttribute("data-overlay-color");
         if (overlayColor) videoPopupWrap.style.backgroundColor = overlayColor;
 
@@ -730,7 +744,13 @@ export default function ArolaxEngine() {
         gsap.set(popupBox, { clearProps: "transform,filter" });
         videoTimeline = gsap
           .timeline({ defaults: { ease: "power2.inOut" } })
-          .to(videoPopupWrap, { scaleY: 0.01, x: 1, opacity: 1, visibility: "visible", duration: 0.35 })
+          .to(videoPopupWrap, {
+            scaleY: 0.01,
+            x: 1,
+            opacity: 1,
+            visibility: "visible",
+            duration: 0.35,
+          })
           .to(videoPopupWrap, { scaleY: 1, duration: 0.45 })
           .fromTo(
             popupBox,
@@ -801,7 +821,7 @@ export default function ArolaxEngine() {
           const delay = Number(settings.delay ?? 0.15);
           const offset = Number(settings["fade-offset"] ?? 50);
           const fadeFrom = settings["fade-from"] || "bottom";
-          const rawEase = settings.ease || "power2.out";
+          const rawEase = String(settings.ease || "power2.out");
           const ease = rawEase === "bounce" ? "bounce.out" : rawEase;
 
           const fromVars: gsap.TweenVars = {
@@ -832,8 +852,8 @@ export default function ArolaxEngine() {
           const settings = parseSettings(el);
           if (settings["wcf-image-animation"] !== "reveal") return;
 
-          const startFrom = settings.aae_a_start_from || "right";
-          const ease = settings["image-ease"] || "power2.out";
+          const startFrom = String(settings.aae_a_start_from || "right");
+          const ease = String(settings["image-ease"] || "power2.out");
           const wrap =
             el.querySelector<HTMLElement>(".wcf--image") ||
             el.querySelector<HTMLElement>(".elementor-widget-container");
@@ -906,7 +926,9 @@ export default function ArolaxEngine() {
         });
 
         // (D) Case Study Horizontal Pinned Gallery — exact match to arolax-gallery.js
-        const galleryScope = document.querySelector<HTMLElement>(".elementor-widget-arolax--gallery");
+        const galleryScope = document.querySelector<HTMLElement>(
+          ".elementor-widget-arolax--gallery"
+        );
         if (galleryScope) {
           const sections = galleryScope.querySelectorAll<HTMLElement>(".g-slider--one .item");
           const sections2 = galleryScope.querySelectorAll<HTMLElement>(".g-slider--two .item");
@@ -960,112 +982,118 @@ export default function ArolaxEngine() {
       if (cancelled) return;
 
       textCtx = gsap.context(() => {
-        document.querySelectorAll<HTMLElement>("[data-settings*='wcf_text_animation']").forEach((el) => {
-          const settings = parseSettings(el);
-          const animType = settings.wcf_text_animation;
-          if (!animType || animType === "none") return;
+        document
+          .querySelectorAll<HTMLElement>("[data-settings*='wcf_text_animation']")
+          .forEach((el) => {
+            const settings = parseSettings(el);
+            const animType = settings.wcf_text_animation;
+            if (!animType || animType === "none") return;
 
-          const target = getWidgetTextTarget(el);
-          if (!target || !target.textContent?.trim()) return;
+            const target = getWidgetTextTarget(el);
+            if (!target || !target.textContent?.trim()) return;
 
-          const originalHTML = target.innerHTML;
-          cleanups.push(() => {
-            target.innerHTML = originalHTML;
+            const originalHTML = target.innerHTML;
+            cleanups.push(() => {
+              target.innerHTML = originalHTML;
+            });
+
+            if (animType === "char" || animType === "word") {
+              const duration = Number(settings.text_duration ?? 1);
+              const delay = Number(settings.text_delay ?? 0.15);
+              const stagger = Number(settings.text_stagger ?? 0.02);
+              const tx =
+                settings.text_translate_x !== undefined ? Number(settings.text_translate_x) : 0;
+              const ty =
+                settings.text_translate_y !== undefined ? Number(settings.text_translate_y) : 0;
+
+              const { words, chars } = splitWordsOrChars(target, animType);
+              const items = animType === "char" ? chars : words;
+              if (!items.length) return;
+
+              const fromVars: gsap.TweenVars = {
+                duration,
+                autoAlpha: 0,
+                delay,
+                stagger,
+                ease: "power2.out",
+                scrollTrigger: {
+                  trigger: el,
+                  start: "top 88%",
+                  once: true,
+                },
+              };
+              if (tx) fromVars.x = tx;
+              if (ty) fromVars.y = ty;
+
+              gsap.from(items, fromVars);
+            } else if (animType === "text_move") {
+              const duration = Number(settings.text_duration ?? 1);
+              const delay = Number(settings.text_delay ?? 0.15);
+              const stagger = Number(settings.text_stagger ?? 0.02);
+              const dir = settings.text_rotation_di === "y" ? "y" : "x";
+              const rot = Number(settings.text_rotation ?? -80);
+              const origin = settings.text_transform_origin || "top center -50";
+
+              const moveTargets: HTMLElement[] =
+                target.classList.contains("wcf--text") && target.children.length > 0
+                  ? Array.from(target.children).filter(
+                      (c): c is HTMLElement => c instanceof HTMLElement
+                    )
+                  : [target];
+
+              const allLines: HTMLElement[] = [];
+              moveTargets.forEach((mt) => {
+                gsap.set(mt, { perspective: 400 });
+                const { lines } = splitIntoVisualLines(mt, {});
+                allLines.push(...lines);
+              });
+
+              if (!allLines.length) return;
+
+              const fromVars: gsap.TweenVars = {
+                duration,
+                delay,
+                opacity: 0,
+                force3D: true,
+                transformOrigin: origin,
+                stagger,
+                ease: "power2.out",
+                scrollTrigger: {
+                  trigger: el,
+                  start: "top 88%",
+                  once: true,
+                },
+              };
+              if (dir === "x") fromVars.rotationX = rot;
+              else fromVars.rotationY = rot;
+
+              gsap.from(allLines, fromVars);
+            } else if (animType === "text_reveal") {
+              const duration = Number(settings.text_duration ?? 1);
+              const delay = Number(settings.text_delay ?? 0.15);
+              const stagger = Number(settings.text_stagger ?? 0.02);
+
+              const { chars } = splitIntoVisualLines(target, {
+                lineClass: "anim-reveal-line",
+                splitChars: true,
+              });
+              if (!chars.length) return;
+
+              gsap.from(chars, {
+                duration,
+                delay,
+                ease: "circ.out",
+                y: 80,
+                stagger,
+                opacity: 0,
+                scrollTrigger: {
+                  trigger: el,
+                  start: "top 88%",
+                  once: true,
+                },
+              });
+            }
           });
-
-          if (animType === "char" || animType === "word") {
-            const duration = Number(settings.text_duration ?? 1);
-            const delay = Number(settings.text_delay ?? 0.15);
-            const stagger = Number(settings.text_stagger ?? 0.02);
-            const tx = settings.text_translate_x !== undefined ? Number(settings.text_translate_x) : 0;
-            const ty = settings.text_translate_y !== undefined ? Number(settings.text_translate_y) : 0;
-
-            const { words, chars } = splitWordsOrChars(target, animType);
-            const items = animType === "char" ? chars : words;
-            if (!items.length) return;
-
-            const fromVars: gsap.TweenVars = {
-              duration,
-              autoAlpha: 0,
-              delay,
-              stagger,
-              ease: "power2.out",
-              scrollTrigger: {
-                trigger: el,
-                start: "top 88%",
-                once: true,
-              },
-            };
-            if (tx) fromVars.x = tx;
-            if (ty) fromVars.y = ty;
-
-            gsap.from(items, fromVars);
-          } else if (animType === "text_move") {
-            const duration = Number(settings.text_duration ?? 1);
-            const delay = Number(settings.text_delay ?? 0.15);
-            const stagger = Number(settings.text_stagger ?? 0.02);
-            const dir = settings.text_rotation_di === "y" ? "y" : "x";
-            const rot = Number(settings.text_rotation ?? -80);
-            const origin = settings.text_transform_origin || "top center -50";
-
-            const moveTargets: HTMLElement[] =
-              target.classList.contains("wcf--text") && target.children.length > 0
-                ? Array.from(target.children).filter((c): c is HTMLElement => c instanceof HTMLElement)
-                : [target];
-
-            const allLines: HTMLElement[] = [];
-            moveTargets.forEach((mt) => {
-              gsap.set(mt, { perspective: 400 });
-              const { lines } = splitIntoVisualLines(mt, {});
-              allLines.push(...lines);
-            });
-
-            if (!allLines.length) return;
-
-            const fromVars: gsap.TweenVars = {
-              duration,
-              delay,
-              opacity: 0,
-              force3D: true,
-              transformOrigin: origin,
-              stagger,
-              ease: "power2.out",
-              scrollTrigger: {
-                trigger: el,
-                start: "top 88%",
-                once: true,
-              },
-            };
-            if (dir === "x") fromVars.rotationX = rot;
-            else fromVars.rotationY = rot;
-
-            gsap.from(allLines, fromVars);
-          } else if (animType === "text_reveal") {
-            const duration = Number(settings.text_duration ?? 1);
-            const delay = Number(settings.text_delay ?? 0.15);
-            const stagger = Number(settings.text_stagger ?? 0.02);
-
-            const { chars } = splitIntoVisualLines(target, {
-              lineClass: "anim-reveal-line",
-              splitChars: true,
-            });
-            if (!chars.length) return;
-
-            gsap.from(chars, {
-              duration,
-              delay,
-              ease: "circ.out",
-              y: 80,
-              stagger,
-              opacity: 0,
-              scrollTrigger: {
-                trigger: el,
-                start: "top 88%",
-                once: true,
-              },
-            });
-          }
-        });
       });
 
       ScrollTrigger.refresh();

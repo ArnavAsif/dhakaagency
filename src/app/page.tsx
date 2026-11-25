@@ -1,9 +1,8 @@
-import React from "react";
 import ArolaxEngine from "@/components/ArolaxEngine";
 import {
+  footerHTML,
   headerHTML,
   mainHTML,
-  footerHTML,
   scrollToTopHTML,
   videoPopupHTML,
 } from "@/data/arolax-html";
