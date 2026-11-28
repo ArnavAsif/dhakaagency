@@ -341,12 +341,28 @@ export default function ArolaxEngine() {
     lenis.on("scroll", () => {
       ScrollTrigger.update();
     });
+    lenis.scrollTo(0, { immediate: true, force: true });
+    window.scrollTo(0, 0);
+
     const tickerCb = (time: number) => lenis.raf(time * 1000);
     gsap.ticker.add(tickerCb);
     gsap.ticker.lagSmoothing(0);
     cleanups.push(() => {
       gsap.ticker.remove(tickerCb);
       lenis.destroy();
+    });
+
+    listen(window, "beforeunload", () => {
+      window.scrollTo(0, 0);
+    });
+    listen(window, "pageshow", (e) => {
+      if ((e as PageTransitionEvent).persisted) {
+        if (window.location.hash) {
+          history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+        window.scrollTo(0, 0);
+        lenis.scrollTo(0, { immediate: true, force: true });
+      }
     });
 
     // ----------------------------------------------------
@@ -368,6 +384,8 @@ export default function ArolaxEngine() {
         preloaderEl.style.pointerEvents = "none";
         addTimer(() => {
           preloaderEl.style.display = "none";
+          window.scrollTo(0, 0);
+          lenis.scrollTo(0, { immediate: true, force: true });
           ScrollTrigger.refresh();
         }, 200);
       };
@@ -421,6 +439,25 @@ export default function ArolaxEngine() {
           e.preventDefault();
           link.parentElement?.classList.toggle("active");
         }
+      });
+    });
+
+    // Smooth-scroll in-page anchor links without leaving a #hash that jumps on reload
+    document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((anchor) => {
+      listen(anchor, "click", (e) => {
+        const href = anchor.getAttribute("href");
+        if (!href || href === "#") return;
+        if (
+          window.innerWidth <= 1024 &&
+          anchor.parentElement?.classList.contains("menu-item-has-children")
+        ) {
+          return;
+        }
+        const target = document.querySelector<HTMLElement>(href);
+        if (!target) return;
+        e.preventDefault();
+        closeMenu();
+        lenis.scrollTo(href === "#hero" ? 0 : target);
       });
     });
 
