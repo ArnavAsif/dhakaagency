@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="184" height="48" viewBox="0 0 184 48" fill="none" role="img" aria-label="Dhaka Agency">
+  <rect x="2" y="4" width="40" height="40" rx="8" fill="#121212"/>
+  <path d="M12 14H22.5C27.7467 14 32 18.2533 32 23.5V24.5C32 29.7467 27.7467 34 22.5 34H12V14Z" stroke="#FFFFFF" stroke-width="3.2"/>
+  <path d="M26 14L34 14L34 22" stroke="#9B1C1C" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="20.5" cy="24" r="3.2" fill="#9B1C1C"/>
+  <text x="52" y="25" fill="#121212" font-family="'Segoe UI', Arial, Helvetica, sans-serif" font-size="19" font-weight="800" letter-spacing="0.8">DHAKA</text>
+  <text x="53" y="40" fill="#9B1C1C" font-family="'Segoe UI', Arial, Helvetica, sans-serif" font-size="11.5" font-weight="700" letter-spacing="3.6">AGENCY</text>
+</svg>

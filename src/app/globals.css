@@ -191,14 +191,14 @@ body {
 }
 
 /* ====================================================
-   NOMAD DIGITAL BD MEDIA & LAYOUT POLISH
+   DHAKA AGENCY MEDIA & LAYOUT POLISH
    ==================================================== */
 
-/* Official Nomad Digital BD header logo sizing */
+/* Official Dhaka Agency header logo sizing */
 .elementor-47 .elementor-element-55cb238 img {
   height: 44px !important;
   width: auto !important;
-  max-width: 170px !important;
+  max-width: 190px !important;
   object-fit: contain;
 }
 
@@ -209,7 +209,7 @@ body {
   object-fit: contain;
 }
 
-/* Clean aspect framing for Nomad images across About, Tabs, Case Studies, Services, Banner & Blogs */
+/* Clean aspect framing for Dhaka Agency images across About, Tabs, Case Studies, Services, Banner & Blogs */
 .elementor-element-b5dc53e img,
 .elementor-element-451d2d9 .tab-content img,
 .elementor-element-54e3a56 .item img,
@@ -252,7 +252,7 @@ body {
   padding: 5px;
 }
 
-/* Real Nomad Digital BD Ambassador & Growth Video Cards (Section 10) */
+/* Real Dhaka Agency Ambassador & Growth Video Cards (Section 10) */
 .elementor-6 .elementor-element.elementor-element-c24eaaf > * {
   flex: 1 1 0 !important;
   min-width: 0 !important;

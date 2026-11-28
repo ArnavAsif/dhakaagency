@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nomad Digital BD | Growth-Driven Digital Marketing Experts",
+  title: "Dhaka Agency | Growth-Driven Digital Marketing Experts",
   description:
-    "Nomad Digital is a remote-first digital marketing agency helping businesses scale with SEO, Paid Ads, CRO, Web Analytics & more.",
+    "Dhaka Agency is a remote-first digital marketing agency helping businesses scale with SEO, Paid Ads, CRO, Web Analytics & more.",
 };
 
 export default function RootLayout({
@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -24,7 +24,10 @@ export default function RootLayout({
         />
         <link rel="stylesheet" href="/assets/css/arolax-exact.css" />
       </head>
-      <body className="home wp-singular page-template page-template-elementor_header_footer page page-id-6 wp-theme-arolax ezd-body-docs joya-gl-blog arolax-base elementor-default elementor-template-full-width elementor-kit-3 elementor-page elementor-page-6 e--ua-blink e--ua-chrome e--ua-webkit">
+      <body
+        suppressHydrationWarning
+        className="home wp-singular page-template page-template-elementor_header_footer page page-id-6 wp-theme-arolax ezd-body-docs joya-gl-blog arolax-base elementor-default elementor-template-full-width elementor-kit-3 elementor-page elementor-page-6 e--ua-blink e--ua-chrome e--ua-webkit"
+      >
         {children}
       </body>
     </html>
